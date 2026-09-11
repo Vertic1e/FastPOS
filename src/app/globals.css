@@ -1,0 +1,193 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+
+  --color-cream: #f5f2ec;
+  --color-paper: #fdfcf9;
+  --color-ink: #1c1814;
+  --color-coal: #16120e;
+  --color-coal-soft: #221c16;
+  --color-flame: #e85d26;
+  --color-flame-deep: #c94815;
+  --color-sage: #4c8055;
+  --color-sky-brand: #0f7fa8;
+  --color-berry: #b83a6b;
+  --color-line: #e6e0d4;
+}
+
+:root {
+  --accent: #e85d26;
+  --accent-deep: #c94815;
+  --accent-soft: #fbe9e0;
+}
+
+html {
+  scroll-behavior: smooth;
+  font-size: 16px;
+  transition: font-size 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+html[data-font-size="large"],
+body[data-font-size="large"] {
+  font-size: 18px;
+}
+
+html[data-font-size="xl"],
+body[data-font-size="xl"] {
+  font-size: 20px;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-cream);
+  color: var(--color-ink);
+}
+
+::selection {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Slim scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d6cfc0 transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #d6cfc0;
+  border-radius: 99px;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Motion */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+@keyframes fadein {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(232, 93, 38, 0.35);
+  }
+  70% {
+    box-shadow: 0 0 0 14px rgba(232, 93, 38, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(232, 93, 38, 0);
+  }
+}
+
+.anim-rise {
+  animation: rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.anim-pop {
+  animation: pop 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.anim-fade {
+  animation: fadein 0.3s ease both;
+}
+
+.skeleton {
+  background: linear-gradient(
+    100deg,
+    #ece7dc 40%,
+    #f6f2e9 50%,
+    #ece7dc 60%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+/* Staggered entrance for grids */
+.stagger > * {
+  animation: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.stagger > *:nth-child(1) { animation-delay: 0.02s; }
+.stagger > *:nth-child(2) { animation-delay: 0.06s; }
+.stagger > *:nth-child(3) { animation-delay: 0.1s; }
+.stagger > *:nth-child(4) { animation-delay: 0.14s; }
+.stagger > *:nth-child(5) { animation-delay: 0.18s; }
+.stagger > *:nth-child(6) { animation-delay: 0.22s; }
+.stagger > *:nth-child(7) { animation-delay: 0.26s; }
+.stagger > *:nth-child(8) { animation-delay: 0.3s; }
+.stagger > *:nth-child(9) { animation-delay: 0.34s; }
+.stagger > *:nth-child(10) { animation-delay: 0.38s; }
+.stagger > *:nth-child(n + 11) { animation-delay: 0.4s; }
+
+/* Receipt / print */
+.receipt-paper {
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+}
+
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 6mm 4mm;
+  }
+  html,
+  body {
+    background: #fff !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  #print-area,
+  #print-area * {
+    visibility: visible;
+  }
+  #print-area {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 72mm !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
