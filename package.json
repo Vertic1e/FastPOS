@@ -6,6 +6,7 @@
     "next:dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
+    "start:standalone": "node scripts/start-standalone.js",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "db:push": "drizzle-kit push",

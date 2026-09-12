@@ -6,10 +6,12 @@
     android:layout_height="match_parent"
     android:background="#1c1814">
 
+    <!-- WebView (hidden until server is ready) -->
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
         android:id="@+id/swipeRefresh"
         android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        android:layout_height="match_parent"
+        android:visibility="gone">
 
         <WebView
             android:id="@+id/webView"
@@ -18,79 +20,204 @@
 
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
-    <!-- Error/Connection Screen -->
+    <!-- Branded Loading Screen -->
     <LinearLayout
-        android:id="@+id/errorView"
+        android:id="@+id/loadingView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
         android:gravity="center"
-        android:padding="24dp"
-        android:background="#f5f2ec"
-        android:visibility="gone">
+        android:padding="40dp"
+        android:background="#1c1814">
 
+        <!-- Logo container -->
+        <FrameLayout
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:layout_marginBottom="28dp">
+
+            <ImageView
+                android:layout_width="80dp"
+                android:layout_height="80dp"
+                android:src="@drawable/ic_pos_logo"
+                android:scaleType="fitCenter"
+                android:contentDescription="FastPOS Logo" />
+        </FrameLayout>
+
+        <!-- App Name -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="FastPOS Connection"
-            android:textSize="22sp"
+            android:text="FastPOS"
+            android:textSize="28sp"
             android:textStyle="bold"
-            android:textColor="#1c1814" />
+            android:letterSpacing="0.02"
+            android:textColor="#f7f4ee" />
 
         <TextView
-            android:id="@+id/tvErrorMsg"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Could not reach FastPOS server. Please make sure the server is running on your network."
-            android:textSize="14sp"
-            android:textColor="#666666"
-            android:gravity="center" />
+            android:layout_marginTop="4dp"
+            android:text="SMART POINT OF SALE"
+            android:textSize="10sp"
+            android:letterSpacing="0.18"
+            android:textColor="#80f7f4ee" />
 
-        <com.google.android.material.textfield.TextInputLayout
-            android:layout_width="match_parent"
+        <!-- Animated progress bar -->
+        <ProgressBar
+            android:id="@+id/progressBarLoading"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="200dp"
+            android:layout_height="3dp"
+            android:layout_marginTop="40dp"
+            android:indeterminate="true"
+            android:indeterminateTint="#e85d26" />
+
+        <!-- Status text -->
+        <TextView
+            android:id="@+id/tvLoadingStatus"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:hint="Server URL (e.g. http://192.168.1.106:3000)">
+            android:layout_marginTop="16dp"
+            android:text="Starting…"
+            android:textSize="13sp"
+            android:textColor="#60f7f4ee" />
 
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/etServerUrl"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="textUri"
-                android:singleLine="true" />
-        </com.google.android.material.textfield.TextInputLayout>
+    </LinearLayout>
+
+    <!-- Connection & Setup Screen -->
+    <ScrollView
+        android:id="@+id/errorView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#1c1814"
+        android:fillViewport="true"
+        android:visibility="gone">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:orientation="horizontal"
-            android:gravity="center">
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="32dp">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnConnect"
+            <ImageView
+                android:layout_width="64dp"
+                android:layout_height="64dp"
+                android:src="@drawable/ic_pos_logo"
+                android:scaleType="fitCenter"
+                android:layout_marginBottom="16dp"
+                android:contentDescription="FastPOS Logo" />
+
+            <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Connect &amp; Retry"
-                app:backgroundTint="#e85d26"
-                android:textColor="#ffffff" />
+                android:text="FastPOS Connection"
+                android:textSize="22sp"
+                android:textStyle="bold"
+                android:textColor="#f7f4ee" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnResetDefault"
-                style="@style/Widget.Material3.Button.TextButton"
+            <TextView
+                android:id="@+id/tvErrorMsg"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Connect to your local FastPOS register"
+                android:textSize="14sp"
+                android:textColor="#80f7f4ee"
+                android:gravity="center" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilServerUrl"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:hint="FastPOS Server URL (e.g. http://192.168.1.105:3000)"
+                app:boxStrokeColor="#e85d26"
+                app:hintTextColor="#e85d26"
+                app:boxStrokeWidth="1dp"
+                app:boxStrokeWidthFocused="2dp">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etServerUrl"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textUri"
+                    android:singleLine="true"
+                    android:textColor="#f7f4ee"
+                    android:textSize="15sp" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:orientation="horizontal"
+                android:gravity="center">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnConnect"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="48dp"
+                    android:text="Connect"
+                    app:backgroundTint="#e85d26"
+                    android:textColor="#ffffff"
+                    android:textStyle="bold"
+                    app:cornerRadius="12dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnAutoDetect"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="10dp"
+                    android:text="Auto-Detect"
+                    android:textColor="#e85d26"
+                    app:cornerRadius="12dp" />
+            </LinearLayout>
+
+            <!-- Scanning Indicator -->
+            <ProgressBar
+                android:id="@+id/progressBarScanning"
+                style="?android:attr/progressBarStyleSmall"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:text="Use Default LAN" />
+                android:layout_marginTop="12dp"
+                android:indeterminateTint="#e85d26"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tvScanStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textSize="12sp"
+                android:textColor="#60f7f4ee"
+                android:visibility="gone" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="28dp"
+                android:background="#231e19"
+                android:padding="16dp"
+                android:text="💡 Standalone Setup Tip:\nStart FastPOS on your PC or POS machine by double-clicking 'start-pos.bat' or running 'npm run start:standalone'. Make sure your device is on the same Wi-Fi network, then tap 'Auto-Detect'."
+                android:textSize="12sp"
+                android:textColor="#70f7f4ee"
+                android:lineSpacingExtra="3dp" />
+
         </LinearLayout>
-    </LinearLayout>
+    </ScrollView>
 
+    <!-- WebView page load progress bar (top edge) -->
     <ProgressBar
         android:id="@+id/progressBar"
         style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent"
-        android:layout_height="4dp"
+        android:layout_height="3dp"
+        android:layout_gravity="top"
         android:max="100"
         android:progressTint="#e85d26"
         android:visibility="gone" />

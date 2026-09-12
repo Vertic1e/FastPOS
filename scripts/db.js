@@ -3,12 +3,17 @@ const { Client } = require('pg');
 const path = require('path');
 const fs = require('fs');
 
-const pgDataDir = path.resolve(__dirname, '../.pgdata');
+// Allow overriding the data directory from the environment (used by Android standalone mode)
+function getPgDataDir(customDir) {
+  if (customDir) return path.resolve(customDir, 'pgdata');
+  if (process.env.FASTPOS_DATA_DIR) return path.resolve(process.env.FASTPOS_DATA_DIR, 'pgdata');
+  return path.resolve(__dirname, '../.pgdata');
+}
 
-async function getPgInstance() {
+async function getPgInstance(dataDir) {
   const pg = new EmbeddedPostgres({
     port: 5432,
-    databaseDir: pgDataDir,
+    databaseDir: dataDir,
     user: 'postgres',
     password: 'postgres',
     persistent: true,
@@ -36,16 +41,19 @@ async function isPortOpen(port = 5432) {
   });
 }
 
-async function initAndStart() {
+async function initAndStart(customDataDir) {
+  const pgDataDir = getPgDataDir(customDataDir);
+
   const alreadyRunning = await isPortOpen(5432);
   if (alreadyRunning) {
     console.log('[FastPOS DB] PostgreSQL is already running on port 5432.');
     return;
   }
 
-  const pg = await getPgInstance();
+  const pg = await getPgInstance(pgDataDir);
   if (!fs.existsSync(pgDataDir)) {
     console.log('[FastPOS DB] Initializing PostgreSQL cluster...');
+    fs.mkdirSync(pgDataDir, { recursive: true });
     await pg.initialise();
   }
 

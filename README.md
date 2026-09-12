@@ -4,13 +4,37 @@ A modern, full-stack Point of Sale (POS), order management, and real-time invent
 
 ---
 
-## 🚀 Quick Start Guide
+## ⚡ Standalone Local Run (No External Server Needed)
 
-### 1. Prerequisites
+FastPOS can run **100% independently on your local device** with embedded PostgreSQL and a self-contained Next.js production server:
 
-Make sure you have installed:
-- **Node.js**: v18.17+ (v20 or v22 LTS recommended)
-- **PostgreSQL**: Local service or Docker container
+### Option 1: One-Click Desktop Launcher (Windows)
+Double-click [`start-pos.bat`](./start-pos.bat) in the project folder. It will:
+1. Automatically start the embedded local PostgreSQL database
+2. Launch the standalone FastPOS production server
+3. Open `http://localhost:3000/pos` in your browser
+
+### Option 2: Command Line (Windows, macOS, Linux)
+```bash
+# Build standalone bundle (if not yet built)
+npm run build
+
+# Start standalone engine (embedded DB + server)
+npm run start:standalone
+```
+
+---
+
+## 📲 Android POS Device Installation
+
+The ready-to-install Android APK is located in [`release-apk/FastPOS.apk`](./release-apk/FastPOS.apk).
+
+1. Install `FastPOS.apk` on your Android POS terminal, tablet, or phone.
+2. Start FastPOS on your local PC or register using `start-pos.bat`.
+3. Open the app on your device — it will automatically detect and connect to your local FastPOS server on the Wi-Fi network!
+4. Supports native ESC/POS thermal printing via standard Android Print Service.
+
+---
 
 ---
 

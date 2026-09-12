@@ -47,3 +47,6 @@ test_*.ts
 android/app/build/
 android/.gradle/
 android/build/
+
+# nodejs-project bundled assets (generated from npm run build — do not commit)
+android/app/src/main/assets/nodejs-project/
