@@ -8,6 +8,7 @@ import {
   Package,
   ReceiptText,
   Settings2,
+  Users,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -15,13 +16,30 @@ import { useState, useTransition } from "react";
 import { logoutAction } from "@/app/actions/auth";
 import { FontSizeToggle } from "@/components/font-size-toggle";
 import { initials } from "@/lib/format";
+import type { UserPermissions } from "@/db/schema";
+import { hasPermission } from "@/lib/permissions";
 
-const NAV = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/pos", label: "Point of Sale", icon: MonitorSmartphone },
-  { href: "/inventory", label: "Inventory", icon: Package },
-  { href: "/orders", label: "Orders", icon: ReceiptText },
-  { href: "/settings", label: "Settings", icon: Settings2 },
+const ROLE_META: Record<string, { label: string; color: string }> = {
+  owner: { label: "Owner", color: "text-amber-400" },
+  manager: { label: "Manager", color: "text-violet-400" },
+  sale: { label: "Sale", color: "text-sky-400" },
+};
+
+type NavItem = {
+  href: string;
+  label: string;
+  icon: React.ElementType;
+  permKey?: string;
+  ownerOnly?: boolean;
+};
+
+const NAV: NavItem[] = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, permKey: "can_access_dashboard" },
+  { href: "/pos", label: "Point of Sale", icon: MonitorSmartphone, permKey: "can_access_pos" },
+  { href: "/inventory", label: "Inventory", icon: Package, permKey: "can_access_inventory" },
+  { href: "/orders", label: "Orders", icon: ReceiptText, permKey: "can_access_orders" },
+  { href: "/settings", label: "Settings", icon: Settings2, permKey: "can_access_settings" },
+  { href: "/staff", label: "Staff", icon: Users, ownerOnly: true },
 ];
 
 export function Sidebar({
@@ -32,17 +50,26 @@ export function Sidebar({
   secondaryCurrency = "KHR",
   exchangeRate = 4000,
   enableDualCurrency = true,
+  permissions,
 }: {
-  user: { name: string; email: string };
+  user: { name: string; email: string; role: string };
   storeName: string;
   lowStockCount: number;
   currency?: string;
   secondaryCurrency?: string;
   exchangeRate?: number;
   enableDualCurrency?: boolean;
+  permissions: UserPermissions;
 }) {
   const pathname = usePathname();
   const [pending, startTransition] = useTransition();
+  const roleMeta = ROLE_META[user.role] ?? ROLE_META.sale;
+
+  const visibleNav = NAV.filter((item) => {
+    if (item.ownerOnly) return user.role === "owner";
+    if (item.permKey) return hasPermission(permissions, user.role, item.permKey as keyof UserPermissions);
+    return true;
+  });
 
   return (
     <>
@@ -66,7 +93,7 @@ export function Sidebar({
         </div>
 
         <nav className="flex-1 space-y-1 px-3">
-          {NAV.map((item) => {
+          {visibleNav.map((item) => {
             const active = pathname.startsWith(item.href);
             return (
               <Link
@@ -126,7 +153,7 @@ export function Sidebar({
             </div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-[13px] font-semibold text-white">{user.name}</p>
-              <p className="truncate text-[11px] text-cream/40">{user.email}</p>
+              <p className={`text-[11px] font-semibold ${roleMeta.color}`}>{roleMeta.label}</p>
             </div>
             <button
               onClick={() => startTransition(() => logoutAction())}
@@ -156,6 +183,9 @@ export function Sidebar({
             </p>
           )}
         </div>
+        <span className={`text-[10px] font-bold uppercase tracking-wide ${roleMeta.color}`}>
+          {roleMeta.label}
+        </span>
         <FontSizeToggle className="scale-90" />
         <button
           onClick={() => startTransition(() => logoutAction())}
@@ -168,7 +198,7 @@ export function Sidebar({
 
       {/* Mobile bottom nav */}
       <nav className="no-print fixed inset-x-0 bottom-0 z-40 flex border-t border-line bg-paper/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
-        {NAV.map((item) => {
+        {visibleNav.slice(0, 5).map((item) => {
           const active = pathname.startsWith(item.href);
           return (
             <Link

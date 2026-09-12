@@ -3,7 +3,8 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { and, eq, gt } from "drizzle-orm";
 import { db } from "@/db";
-import { sessions, users } from "@/db/schema";
+import { sessions, users, type UserPermissions } from "@/db/schema";
+import { hasPermission, mergeWithDefaults, type PermissionKey } from "@/lib/permissions";
 
 export const SESSION_COOKIE = "bl_session";
 const SESSION_DAYS = 7;
@@ -13,6 +14,7 @@ export type SessionUser = {
   name: string;
   email: string;
   role: string;
+  permissions: UserPermissions;
 };
 
 export async function createSession(userId: number) {
@@ -39,17 +41,31 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       name: users.name,
       email: users.email,
       role: users.role,
+      permissions: users.permissions,
     })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
     .where(and(eq(sessions.token, token), gt(sessions.expiresAt, new Date())))
     .limit(1);
-  return rows[0] ?? null;
+  if (!rows[0]) return null;
+  const row = rows[0];
+  return {
+    ...row,
+    permissions: mergeWithDefaults(row.role, row.permissions as UserPermissions | null),
+  };
 }
 
 export async function requireUser(): Promise<SessionUser> {
   const user = await getSessionUser();
   if (!user) redirect("/login");
+  return user;
+}
+
+export async function requirePermission(key: PermissionKey): Promise<SessionUser> {
+  const user = await requireUser();
+  if (!hasPermission(user.permissions, user.role, key)) {
+    redirect("/dashboard");
+  }
   return user;
 }
 

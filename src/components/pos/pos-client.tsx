@@ -3,6 +3,7 @@
 import {
   Banknote,
   Check,
+  CheckCircle2,
   Coins,
   CreditCard,
   Layers,
@@ -10,6 +11,7 @@ import {
   NotebookPen,
   Plus,
   Printer,
+  QrCode,
   ReceiptText,
   RotateCcw,
   Search,
@@ -200,6 +202,10 @@ export function PosClient({
     startRefresh(() => router.refresh());
   }
 
+  function printBill() {
+    window.print();
+  }
+
   const gridCols: Record<number, string> = {
     2: "repeat(2, minmax(0, 1fr))",
     3: "repeat(3, minmax(0, 1fr))",
@@ -209,6 +215,80 @@ export function PosClient({
 
   return (
     <div className="flex min-h-dvh flex-col lg:h-dvh lg:flex-row">
+      {/* ------------------------- Printable customer bill receipt (hidden on screen, visible on print) ------------------------- */}
+      {cart.length > 0 && (
+        <div
+          id="print-area"
+          className="receipt-paper mx-auto hidden w-[320px] bg-white p-5 text-[12px] leading-[1.45] text-black print:block"
+        >
+          <div className="text-center">
+            <p className="text-[17px] font-bold tracking-wide">{storeName}</p>
+            <p className="text-[11px] uppercase tracking-widest text-black/70">Customer Bill / Order Summary</p>
+          </div>
+
+          <div className="my-2 border-t border-dashed border-black/60" />
+
+          <div className="flex justify-between text-[11px]">
+            <span>Cashier: {cashierName.split(" ")[0]}</span>
+            <span>{new Date().toLocaleDateString()} {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+          </div>
+
+          <div className="my-2 border-t border-dashed border-black/60" />
+
+          <table className="w-full">
+            <tbody>
+              {cart.map((l) => {
+                const unit = unitOf(l);
+                const lineTot = round2(unit * l.qty);
+                const modsStr = l.modifiers.map((m) => `${m.option}${m.price > 0 ? ` +${money(m.price, currency)}` : ""}`).join(", ");
+                return (
+                  <tr key={l.key} className="align-top">
+                    <td className="py-1 pr-2">
+                      <div className="font-semibold">{l.name}</div>
+                      {modsStr && <div className="text-[10px] text-black/60">{modsStr}</div>}
+                      {l.note && <div className="text-[10px] italic text-black/60">“{l.note}”</div>}
+                    </td>
+                    <td className="py-1 text-right tabular-nums w-8">{l.qty}×</td>
+                    <td className="py-1 text-right tabular-nums w-16">{money(lineTot, currency)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          <div className="my-2 border-t border-dashed border-black/60" />
+
+          <div className="space-y-0.5 text-[11px]">
+            <div className="flex justify-between">
+              <span>Subtotal</span>
+              <span className="tabular-nums">{money(subtotal, currency)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Tax ({taxRate}%)</span>
+              <span className="tabular-nums">{money(tax, currency)}</span>
+            </div>
+            <div className="mt-1 flex justify-between border-t border-dashed border-black/40 pt-1 text-[14px] font-bold">
+              <span>TOTAL ({currency})</span>
+              <span className="tabular-nums">{money(total, currency)}</span>
+            </div>
+            {enableDualCurrency && (
+              <div className="flex justify-between font-bold text-[13px]">
+                <span>TOTAL ({secondaryCurrency})</span>
+                <span className="tabular-nums">{totalKhr.toLocaleString()} {secondaryCurrency}</span>
+              </div>
+            )}
+            {enableDualCurrency && (
+              <p className="mt-0.5 text-right text-[10px] italic text-black/60">
+                Rate: 1 {currency} = {exchangeRate.toLocaleString()} {secondaryCurrency}
+              </p>
+            )}
+          </div>
+
+          <div className="my-2 border-t border-dashed border-black/60" />
+          <p className="text-center text-[10px] text-black/70">Thank you for dining with us!</p>
+        </div>
+      )}
+
       {/* ------------------------- Menu side ------------------------- */}
       <section className="flex-1 overflow-y-auto px-4 pb-40 sm:px-6 lg:pb-6">
         <header className="sticky top-14 z-20 -mx-4 bg-cream/95 px-4 pb-3 pt-4 backdrop-blur-sm sm:-mx-6 sm:px-6 lg:top-0 lg:pt-6">
@@ -306,6 +386,7 @@ export function PosClient({
           setQty={setQty}
           onClear={() => setCart([])}
           onCharge={() => setPaying(true)}
+          onPrintBill={printBill}
         />
       </aside>
 
@@ -354,6 +435,7 @@ export function PosClient({
               setCartOpen(false);
               setPaying(true);
             }}
+            onPrintBill={printBill}
           />
         </div>
       </Modal>
@@ -386,6 +468,7 @@ export function PosClient({
           cart={cart}
           onClose={() => setPaying(false)}
           onSuccess={onOrderSuccess}
+          onPrintBill={printBill}
         />
       )}
 
@@ -581,6 +664,7 @@ function TicketPanel({
   setQty,
   onClear,
   onCharge,
+  onPrintBill,
 }: {
   cart: CartLine[];
   currency: string;
@@ -594,6 +678,7 @@ function TicketPanel({
   setQty: (key: string, qty: number) => void;
   onClear: () => void;
   onCharge: () => void;
+  onPrintBill?: () => void;
 }) {
   const subtotalKhr = Math.round(subtotal * exchangeRate);
   const taxKhr = Math.round(tax * exchangeRate);
@@ -732,14 +817,28 @@ function TicketPanel({
             </dd>
           </div>
         </dl>
-        <PrimaryButton
-          onClick={onCharge}
-          disabled={cart.length === 0}
-          className="mt-4 w-full !py-3.5 !text-[15px]"
-        >
-          Charge {money(total, currency)}
-          {enableDualCurrency && ` (${totalKhr.toLocaleString()} ${secondaryCurrency})`}
-        </PrimaryButton>
+        <div className="mt-4 flex gap-2">
+          {onPrintBill && (
+            <button
+              type="button"
+              onClick={onPrintBill}
+              disabled={cart.length === 0}
+              className="flex items-center justify-center gap-1.5 rounded-xl border border-line bg-white px-3.5 py-3 text-sm font-semibold text-ink/75 transition-all hover:border-ink/30 hover:bg-ink/[0.02] hover:text-ink active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40"
+              title="Print bill for customer before charging"
+            >
+              <Printer size={16} />
+              <span>Bill</span>
+            </button>
+          )}
+          <PrimaryButton
+            onClick={onCharge}
+            disabled={cart.length === 0}
+            className="flex-1 !py-3.5 !text-[15px]"
+          >
+            Charge {money(total, currency)}
+            {enableDualCurrency && ` (${totalKhr.toLocaleString()} ${secondaryCurrency})`}
+          </PrimaryButton>
+        </div>
       </div>
     </div>
   );
@@ -909,6 +1008,7 @@ function PaymentModal({
   cart,
   onClose,
   onSuccess,
+  onPrintBill,
 }: {
   total: number;
   currency: string;
@@ -918,8 +1018,9 @@ function PaymentModal({
   cart: CartLine[];
   onClose: () => void;
   onSuccess: (r: Receipt) => void;
+  onPrintBill?: () => void;
 }) {
-  const [method, setMethod] = useState<"cash" | "card">("cash");
+  const [method, setMethod] = useState<"cash" | "card" | "khqr">("cash");
   const [tenderMode, setTenderMode] = useState<"usd" | "khr" | "mixed">("usd");
   const [tenderedUsd, setTenderedUsd] = useState<string>("");
   const [tenderedKhr, setTenderedKhr] = useState<string>("");
@@ -941,9 +1042,13 @@ function PaymentModal({
     effectiveUsdTendered = round2(usdNum + khrNum / exchangeRate);
   }
 
-  const changeUsd = method === "cash" ? round2(effectiveUsdTendered - total) : 0;
+  // If no cash is entered (effectiveUsdTendered === 0), it acts as exact amount given
+  const isCashExactOrOmitted = effectiveUsdTendered === 0;
+  const changeUsd = method === "cash" 
+    ? (isCashExactOrOmitted ? 0 : round2(effectiveUsdTendered - total)) 
+    : 0;
   const changeKhr = method === "cash" ? Math.round(changeUsd * exchangeRate) : 0;
-  const canPay = !busy && (method === "card" || changeUsd >= -0.001);
+  const canPay = !busy && (method === "card" || method === "khqr" || isCashExactOrOmitted || changeUsd >= -0.001);
 
   // Quick preset suggestions for USD
   const quickUsdBills = (() => {
@@ -1041,11 +1146,12 @@ function PaymentModal({
         </div>
 
         {/* Payment Method Switcher */}
-        <div className="mt-4 grid grid-cols-2 gap-2">
+        <div className="mt-4 grid grid-cols-3 gap-2">
           {(
             [
               { key: "cash", label: "Cash", icon: Banknote },
               { key: "card", label: "Card", icon: CreditCard },
+              { key: "khqr", label: "KHQR", icon: QrCode },
             ] as const
           ).map((m) => (
             <button
@@ -1186,24 +1292,44 @@ function PaymentModal({
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-ink/45">Change Due</p>
                   <p className="text-[11px] text-ink/40">
-                    {changeUsd < 0 ? "Underpaid" : "Return in USD or KHR"}
+                    {isCashExactOrOmitted
+                      ? "Exact amount (or unentered)"
+                      : changeUsd < 0
+                      ? "Underpaid"
+                      : "Return in USD or KHR"}
                   </p>
                 </div>
                 <div className="text-right">
                   <p
                     className={`font-display text-xl font-bold tabular-nums ${
-                      changeUsd < 0 ? "text-red-500" : "text-emerald-600"
+                      !isCashExactOrOmitted && changeUsd < 0 ? "text-red-500" : "text-emerald-600"
                     }`}
                   >
-                    {changeUsd < 0 ? "—" : money(changeUsd, currency)}
+                    {!isCashExactOrOmitted && changeUsd < 0 ? "—" : money(changeUsd, currency)}
                   </p>
-                  {enableDualCurrency && changeUsd >= 0 && (
+                  {enableDualCurrency && (!isCashExactOrOmitted && changeUsd < 0 ? null : (
                     <p className="text-xs font-bold text-emerald-700 tabular-nums">
                       {changeKhr.toLocaleString()} {secondaryCurrency}
                     </p>
-                  )}
+                  ))}
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {method === "khqr" && (
+          <div className="anim-fade mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-center">
+            <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-sm">
+              <QrCode size={36} className="text-emerald-600" strokeWidth={1.5} />
+            </div>
+            <p className="font-display text-base font-semibold text-emerald-900">KHQR Payment</p>
+            <p className="mt-1 text-[12px] leading-relaxed text-emerald-700">
+              Present the KHQR code to the customer. Once payment is confirmed in your banking app, tap the button below.
+            </p>
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-white px-3 py-1.5 text-[13px] font-bold text-emerald-700">
+              <CheckCircle2 size={14} className="text-emerald-500" />
+              Confirm when payment received
             </div>
           </div>
         )}
@@ -1219,11 +1345,24 @@ function PaymentModal({
             onClick={onClose}
             disabled={busy}
             className="flex items-center justify-center rounded-xl border border-line bg-white px-4 py-3 text-sm font-semibold text-ink/60 transition-colors hover:text-ink disabled:opacity-40"
+            title="Cancel"
           >
             <X size={16} />
           </button>
+          {onPrintBill && (
+            <button
+              type="button"
+              onClick={onPrintBill}
+              disabled={busy}
+              className="flex items-center justify-center gap-1.5 rounded-xl border border-line bg-white px-4 py-3 text-sm font-semibold text-ink/75 transition-all hover:border-ink/30 hover:bg-ink/[0.02] hover:text-ink active:scale-[0.98] disabled:opacity-40"
+              title="Print customer receipt/bill before charging"
+            >
+              <Printer size={16} />
+              <span>Print Bill</span>
+            </button>
+          )}
           <PrimaryButton onClick={submit} disabled={!canPay} busy={busy} className="flex-1 !py-3">
-            {method === "cash" ? "Complete cash sale" : "Charge card"} · {money(total, currency)}
+            {method === "cash" ? "Complete cash sale" : method === "khqr" ? "Confirm KHQR payment" : "Charge card"} · {money(total, currency)}
             {enableDualCurrency && ` (${totalKhr.toLocaleString()} ${secondaryCurrency})`}
           </PrimaryButton>
         </div>

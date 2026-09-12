@@ -1,9 +1,11 @@
-import { Banknote, CreditCard, Printer, ReceiptText, Search } from "lucide-react";
+import { Banknote, CreditCard, Printer, QrCode, ReceiptText, Search } from "lucide-react";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
+import { hasPermission } from "@/lib/permissions";
 import { fmtDate, fmtTime, money, n } from "@/lib/format";
 import { getOrdersList, type OrderRange } from "@/lib/queries";
 import { getOrCreateSettings } from "@/lib/seed";
+import { RefundButton } from "@/components/orders/refund-button";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Orders" };
@@ -14,12 +16,25 @@ const RANGES: { key: OrderRange; label: string }[] = [
   { key: "all", label: "All time" },
 ];
 
+function PaymentIcon({ method }: { method: string }) {
+  if (method === "khqr") return <QrCode size={12} />;
+  if (method === "cash") return <Banknote size={12} />;
+  return <CreditCard size={12} />;
+}
+
+function PaymentLabel({ method }: { method: string }) {
+  if (method === "khqr") return "KHQR";
+  if (method === "cash") return "Cash";
+  return "Card";
+}
+
 export default async function OrdersPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  await requireUser();
+  const user = await requireUser();
+  const canRefund = hasPermission(user.permissions, user.role, "can_refund");
   const settings = await getOrCreateSettings();
   const currency = settings.currency;
   const secondaryCurrency = settings.secondaryCurrency || "KHR";
@@ -104,16 +119,24 @@ export default async function OrdersPage({
                 <th className="px-3 py-3.5">Items</th>
                 <th className="px-3 py-3.5">Payment</th>
                 <th className="px-3 py-3.5 text-right">Total</th>
-                <th className="px-5 py-3.5 text-right">Receipt</th>
+                <th className="px-5 py-3.5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
               {rows.map((o) => {
                 const orderRate = n(o.exchangeRate) || rate;
                 const orderKhr = n(o.totalKhr) || Math.round(n(o.total) * orderRate);
+                const isRefunded = o.status === "refunded";
                 return (
-                  <tr key={o.id} className="transition-colors hover:bg-cream/60">
-                    <td className="px-5 py-3 font-display font-semibold">#{o.orderNumber}</td>
+                  <tr key={o.id} className={`transition-colors hover:bg-cream/60 ${isRefunded ? "opacity-60" : ""}`}>
+                    <td className="px-5 py-3">
+                      <span className="font-display font-semibold">#{o.orderNumber}</span>
+                      {isRefunded && (
+                        <span className="ml-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-600">
+                          Refunded
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-3 text-ink/60">
                       {fmtDate(o.createdAt)} · {fmtTime(o.createdAt)}
                     </td>
@@ -121,26 +144,35 @@ export default async function OrdersPage({
                     <td className="px-3 py-3 text-ink/60">{o.itemCount}</td>
                     <td className="px-3 py-3">
                       <span className="inline-flex items-center gap-1.5 rounded-full bg-ink/[0.05] px-2.5 py-1 text-[11px] font-semibold text-ink/60">
-                        {o.paymentMethod === "cash" ? <Banknote size={12} /> : <CreditCard size={12} />}
-                        {o.paymentMethod === "cash" ? "Cash" : "Card"}
+                        <PaymentIcon method={o.paymentMethod} />
+                        <PaymentLabel method={o.paymentMethod} />
                       </span>
                     </td>
                     <td className="px-3 py-3 text-right font-semibold tabular-nums">
-                      <div>{money(o.total, currency)}</div>
+                      <div className={isRefunded ? "line-through opacity-50" : ""}>{money(o.total, currency)}</div>
                       {enableDual && (
-                        <div className="text-[11px] font-medium text-ink/45">
+                        <div className={`text-[11px] font-medium text-ink/45 ${isRefunded ? "line-through opacity-50" : ""}`}>
                           {orderKhr.toLocaleString()} {secondaryCurrency}
                         </div>
                       )}
                     </td>
                     <td className="px-5 py-3 text-right">
-                      <Link
-                        href={`/receipt/${o.id}`}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-ink/[0.05] px-3 py-1.5 text-[12px] font-semibold transition-colors hover:bg-ink hover:text-white"
-                      >
-                        <Printer size={12} />
-                        View & print
-                      </Link>
+                      <div className="flex items-center justify-end gap-2">
+                        {!isRefunded && (
+                          <RefundButton
+                            orderId={o.id}
+                            orderNumber={o.orderNumber}
+                            canRefund={canRefund}
+                          />
+                        )}
+                        <Link
+                          href={`/receipt/${o.id}`}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-ink/[0.05] px-3 py-1.5 text-[12px] font-semibold transition-colors hover:bg-ink hover:text-white"
+                        >
+                          <Printer size={12} />
+                          View & print
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -153,29 +185,42 @@ export default async function OrdersPage({
             {rows.map((o) => {
               const orderRate = n(o.exchangeRate) || rate;
               const orderKhr = n(o.totalKhr) || Math.round(n(o.total) * orderRate);
+              const isRefunded = o.status === "refunded";
               return (
-                <Link key={o.id} href={`/receipt/${o.id}`} className="flex items-center gap-3 px-4 py-3.5">
-                  <span
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
-                    style={{ background: "var(--accent-soft)", color: "var(--accent-deep)" }}
-                  >
-                    {o.paymentMethod === "cash" ? <Banknote size={15} /> : <CreditCard size={15} />}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold">#{o.orderNumber}</p>
-                    <p className="truncate text-[11px] text-ink/45">
-                      {fmtDate(o.createdAt)} · {fmtTime(o.createdAt)} · {o.itemCount} items
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-display text-sm font-semibold tabular-nums">{money(o.total, currency)}</p>
-                    {enableDual && (
-                      <p className="text-[11px] font-medium text-ink/45">
-                        {orderKhr.toLocaleString()} {secondaryCurrency}
+                <div key={o.id} className={`flex items-center gap-3 px-4 py-3.5 ${isRefunded ? "opacity-60" : ""}`}>
+                  <Link href={`/receipt/${o.id}`} className="flex flex-1 items-center gap-3">
+                    <span
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
+                      style={{ background: "var(--accent-soft)", color: "var(--accent-deep)" }}
+                    >
+                      <PaymentIcon method={o.paymentMethod} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold">
+                        #{o.orderNumber}
+                        {isRefunded && (
+                          <span className="ml-2 text-[10px] font-bold text-red-500">REFUNDED</span>
+                        )}
                       </p>
-                    )}
-                  </div>
-                </Link>
+                      <p className="truncate text-[11px] text-ink/45">
+                        {fmtDate(o.createdAt)} · {fmtTime(o.createdAt)} · {o.itemCount} items
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className={`font-display text-sm font-semibold tabular-nums ${isRefunded ? "line-through opacity-50" : ""}`}>
+                        {money(o.total, currency)}
+                      </p>
+                      {enableDual && (
+                        <p className={`text-[11px] font-medium text-ink/45 ${isRefunded ? "opacity-50" : ""}`}>
+                          {orderKhr.toLocaleString()} {secondaryCurrency}
+                        </p>
+                      )}
+                    </div>
+                  </Link>
+                  {!isRefunded && canRefund && (
+                    <RefundButton orderId={o.id} orderNumber={o.orderNumber} canRefund={canRefund} />
+                  )}
+                </div>
               );
             })}
           </div>

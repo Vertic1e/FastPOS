@@ -38,13 +38,14 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         }
       >
         <Sidebar
-          user={{ name: user.name, email: user.email }}
+          user={{ name: user.name, email: user.email, role: user.role }}
           storeName={settings.storeName}
           lowStockCount={low}
           currency={settings.currency}
           secondaryCurrency={settings.secondaryCurrency || "KHR"}
           exchangeRate={n(settings.exchangeRate) || 4000}
           enableDualCurrency={settings.enableDualCurrency ?? true}
+          permissions={user.permissions}
         />
         <main className="min-h-dvh pb-24 pt-14 lg:pb-0 lg:pl-[248px] lg:pt-0">
           {children}

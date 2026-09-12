@@ -50,6 +50,13 @@ export default async function ReceiptPage({
           {settings.receiptHeader && <p className="mt-1.5 italic">{settings.receiptHeader}</p>}
         </div>
 
+        {order.status === "refunded" && (
+          <div className="my-3 rounded border-2 border-red-500 bg-red-50 py-2 text-center">
+            <p className="text-[14px] font-black uppercase tracking-widest text-red-600">⚠ REFUNDED ⚠</p>
+            {order.refundNote && <p className="mt-0.5 text-[10px] text-red-500">{order.refundNote}</p>}
+          </div>
+        )}
+
         <div className="my-3 border-t border-dashed border-black/60" />
 
         <div className="flex justify-between">
@@ -107,6 +114,8 @@ export default async function ReceiptPage({
           <div className="mt-2 border-t border-dashed border-black/40 pt-1 space-y-0.5">
             {order.paymentMethod === "card" ? (
               <Row label="Payment (Card)" value={money(order.total, currency)} />
+            ) : order.paymentMethod === "khqr" ? (
+              <Row label="Payment (KHQR)" value={money(order.total, currency)} />
             ) : (
               <>
                 {order.cashReceived && (

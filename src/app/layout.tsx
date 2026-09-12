@@ -13,6 +13,8 @@ export const metadata: Metadata = {
   },
   description:
     "A modern point-of-sale for restaurants — take orders, track stock, and print receipts from anywhere.",
+  manifest: "/manifest.json",
+  themeColor: "#1c1814",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

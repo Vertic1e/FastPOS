@@ -39,3 +39,6 @@ next-env.d.ts
 test_*.js
 test_*.cjs
 test_*.ts
+
+# embedded postgres
+.pgdata/

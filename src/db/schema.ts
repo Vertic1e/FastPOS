@@ -22,6 +22,16 @@ export type ModifierGroup = {
 };
 export type SelectedModifier = { group: string; option: string; price: number };
 
+export type UserPermissions = {
+  can_access_pos: boolean;
+  can_access_orders: boolean;
+  can_access_inventory: boolean;
+  can_access_dashboard: boolean;
+  can_access_settings: boolean;
+  can_refund: boolean;
+  can_manage_items: boolean;
+};
+
 /* ------------------------------------------------------------------ */
 /* Auth                                                                */
 /* ------------------------------------------------------------------ */
@@ -31,7 +41,8 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
-  role: text("role").notNull().default("owner"),
+  role: text("role").notNull().default("sale"),
+  permissions: jsonb("permissions").$type<UserPermissions>().notNull().default(sql`'{}'::jsonb`),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
 });
 
@@ -102,6 +113,11 @@ export const orders = pgTable("orders", {
     onDelete: "set null",
   }),
   cashierName: text("cashier_name"),
+  refundedAt: timestamp("refunded_at", { mode: "date" }),
+  refundedById: integer("refunded_by_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  refundNote: text("refund_note"),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
 });
 

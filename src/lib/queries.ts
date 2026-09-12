@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   categories,
@@ -6,6 +6,7 @@ import {
   orderItems,
   orders,
   stockMovements,
+  users,
 } from "@/db/schema";
 import { dayLabel, n, startOfDay } from "@/lib/format";
 
@@ -149,19 +150,35 @@ export async function getOrdersList(range: OrderRange, q?: string) {
       : undefined;
 
   const rows = await db
-    .select()
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      status: orders.status,
+      total: orders.total,
+      paymentMethod: orders.paymentMethod,
+      itemCount: orders.itemCount,
+      cashierName: orders.cashierName,
+      createdAt: orders.createdAt,
+      exchangeRate: orders.exchangeRate,
+      totalKhr: orders.totalKhr,
+      refundedAt: orders.refundedAt,
+      refundNote: orders.refundNote,
+    })
     .from(orders)
     .where(where)
     .orderBy(desc(orders.createdAt))
     .limit(200);
 
   const rangeOrders = from
-    ? await db.select({ total: orders.total }).from(orders).where(gte(orders.createdAt, from))
+    ? await db.select({ total: orders.total, status: orders.status }).from(orders).where(gte(orders.createdAt, from))
     : rows;
+
+  // Exclude refunded orders from revenue totals
+  const revenueRows = rangeOrders.filter((o) => o.status !== "refunded");
 
   return {
     rows,
-    rangeRevenue: rangeOrders.reduce((s, o) => s + n(o.total), 0),
+    rangeRevenue: revenueRows.reduce((s, o) => s + n(o.total), 0),
     rangeCount: rangeOrders.length,
   };
 }
@@ -196,4 +213,23 @@ export async function getStockLog(limitCount = 50) {
     .innerJoin(menuItems, eq(menuItems.id, stockMovements.itemId))
     .orderBy(desc(stockMovements.createdAt))
     .limit(limitCount);
+}
+
+/* ------------------------------------------------------------------ */
+/* Staff                                                               */
+/* ------------------------------------------------------------------ */
+
+export async function getStaffList() {
+  return db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      role: users.role,
+      permissions: users.permissions,
+      createdAt: users.createdAt,
+    })
+    .from(users)
+    .where(ne(users.role, "owner"))
+    .orderBy(asc(users.createdAt));
 }

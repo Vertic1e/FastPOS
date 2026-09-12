@@ -13,6 +13,7 @@ import {
   type SelectedModifier,
 } from "@/db/schema";
 import { mulberry32, round2 } from "@/lib/format";
+import { OWNER_PERMISSIONS, MANAGER_PERMISSIONS, SALE_PERMISSIONS } from "@/lib/permissions";
 
 const TAX_RATE = 8.25;
 
@@ -119,8 +120,27 @@ export async function ensureSeeded() {
   const passwordHash = await bcrypt.hash("demo1234", 10);
   const [owner] = await db
     .insert(users)
-    .values({ name: "Olivia Laurent", email: "owner@bistrolumen.com", passwordHash, role: "owner" })
+    .values({ name: "Olivia Laurent", email: "owner@bistrolumen.com", passwordHash, role: "owner", permissions: OWNER_PERMISSIONS })
     .returning({ id: users.id });
+
+  // Seed demo staff accounts
+  const managerHash = await bcrypt.hash("demo1234", 10);
+  await db.insert(users).values({
+    name: "Marc Dubois",
+    email: "manager@bistrolumen.com",
+    passwordHash: managerHash,
+    role: "manager",
+    permissions: MANAGER_PERMISSIONS,
+  });
+
+  const saleHash = await bcrypt.hash("demo1234", 10);
+  await db.insert(users).values({
+    name: "Lily Chen",
+    email: "sale@bistrolumen.com",
+    passwordHash: saleHash,
+    role: "sale",
+    permissions: SALE_PERMISSIONS,
+  });
 
   await db.insert(settings).values({ id: 1 });
 

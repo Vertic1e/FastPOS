@@ -10,7 +10,7 @@ import {
   stockMovements,
   type SelectedModifier,
 } from "@/db/schema";
-import { requireUser } from "@/lib/auth";
+import { requireUser, requirePermission } from "@/lib/auth";
 import { n, round2 } from "@/lib/format";
 import { getOrCreateSettings } from "@/lib/seed";
 
@@ -35,7 +35,7 @@ export type CheckoutResult =
 
 export async function createOrderAction(input: {
   lines: CartLineInput[];
-  paymentMethod: "cash" | "card";
+  paymentMethod: "cash" | "card" | "khqr";
   cashReceived?: number;
   cashReceivedKhr?: number;
 }): Promise<CheckoutResult> {
@@ -52,7 +52,11 @@ export async function createOrderAction(input: {
 
   if (lines.length === 0) return { ok: false, error: "The ticket is empty." };
   if (lines.length > 60) return { ok: false, error: "Too many lines on one ticket." };
-  const paymentMethod = input.paymentMethod === "card" ? "card" : "cash";
+
+  const validMethods = ["cash", "card", "khqr"] as const;
+  const paymentMethod = validMethods.includes(input.paymentMethod as typeof validMethods[number])
+    ? input.paymentMethod
+    : "cash";
 
   const settings = await getOrCreateSettings();
   const taxRate = n(settings.taxRate);
@@ -72,7 +76,7 @@ export async function createOrderAction(input: {
           throw new Error(`An item on this ticket is no longer available.`);
         }
         if (item.trackStock && item.stock < line.qty) {
-          throw new Error(`Not enough stock for “${item.name}” (${item.stock} left).`);
+          throw new Error(`Not enough stock for "${item.name}" (${item.stock} left).`);
         }
       }
 
@@ -117,13 +121,23 @@ export async function createOrderAction(input: {
         const khrReceived = Math.round(Number(input.cashReceivedKhr ?? 0));
         const effectiveTenderedUsd = round2(usdReceived + khrReceived / exchangeRate);
 
-        if (!Number.isFinite(effectiveTenderedUsd) || effectiveTenderedUsd < total) {
-          throw new Error("Cash received is less than the total due.");
+        // If cashier entered cash, verify it is at least total or compute change.
+        // If cashier did not input cash (or entered 0), treat as exact payment without error.
+        if (effectiveTenderedUsd > 0) {
+          if (effectiveTenderedUsd < total) {
+            throw new Error("Cash received is less than the total due.");
+          }
+          cashReceived = usdReceived > 0 ? usdReceived : null;
+          cashReceivedKhr = khrReceived > 0 ? khrReceived : null;
+          change = round2(effectiveTenderedUsd - total);
+          changeKhr = Math.round(change * exchangeRate);
+        } else {
+          // No cash amount input: treat as exact payment in USD
+          cashReceived = total;
+          cashReceivedKhr = null;
+          change = 0;
+          changeKhr = 0;
         }
-        cashReceived = usdReceived > 0 ? usdReceived : null;
-        cashReceivedKhr = khrReceived > 0 ? khrReceived : null;
-        change = round2(effectiveTenderedUsd - total);
-        changeKhr = Math.round(change * exchangeRate);
       }
 
       const [{ nextNumber }] = await tx
@@ -195,6 +209,74 @@ export async function createOrderAction(input: {
       change: result.change,
       changeKhr: result.changeKhr,
     };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Something went wrong.";
+    return { ok: false, error: message };
+  }
+}
+
+export type RefundResult = { ok: true } | { ok: false; error: string };
+
+export async function refundOrderAction(
+  orderId: number,
+  note?: string,
+): Promise<RefundResult> {
+  const user = await requirePermission("can_refund");
+
+  try {
+    await db.transaction(async (tx) => {
+      const [order] = await tx
+        .select()
+        .from(orders)
+        .where(eq(orders.id, orderId))
+        .limit(1);
+
+      if (!order) throw new Error("Order not found.");
+      if (order.status === "refunded") throw new Error("This order has already been refunded.");
+
+      // Mark order as refunded
+      await tx
+        .update(orders)
+        .set({
+          status: "refunded",
+          refundedAt: new Date(),
+          refundedById: user.id,
+          refundNote: note ?? null,
+        })
+        .where(eq(orders.id, orderId));
+
+      // Restore stock for tracked items
+      const lines = await tx
+        .select()
+        .from(orderItems)
+        .where(eq(orderItems.orderId, orderId));
+
+      for (const line of lines) {
+        if (!line.menuItemId) continue;
+        const [item] = await tx
+          .select({ trackStock: menuItems.trackStock })
+          .from(menuItems)
+          .where(eq(menuItems.id, line.menuItemId))
+          .limit(1);
+        if (!item?.trackStock) continue;
+
+        await tx
+          .update(menuItems)
+          .set({ stock: sql`${menuItems.stock} + ${line.qty}` })
+          .where(eq(menuItems.id, line.menuItemId));
+
+        await tx.insert(stockMovements).values({
+          itemId: line.menuItemId,
+          delta: line.qty,
+          reason: "refund",
+          note: `Refund for Order #${order.orderNumber}`,
+        });
+      }
+    });
+
+    revalidatePath("/orders");
+    revalidatePath("/inventory");
+    return { ok: true };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Something went wrong.";
     return { ok: false, error: message };
