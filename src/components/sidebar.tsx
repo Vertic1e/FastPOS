@@ -14,6 +14,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useTransition } from "react";
 import { logoutAction } from "@/app/actions/auth";
+import { FastPOSLogo } from "@/components/fastpos-logo";
 import { FontSizeToggle } from "@/components/font-size-toggle";
 import { initials } from "@/lib/format";
 import type { UserPermissions } from "@/db/schema";
@@ -76,12 +77,7 @@ export function Sidebar({
       {/* Desktop sidebar */}
       <aside className="no-print fixed inset-y-0 left-0 z-40 hidden w-[248px] flex-col bg-coal text-cream lg:flex">
         <div className="flex items-center gap-3 px-5 pb-6 pt-6">
-          <div
-            className="flex h-10 w-10 items-center justify-center rounded-xl text-white shadow-lg"
-            style={{ background: "linear-gradient(135deg, var(--accent), var(--accent-deep))" }}
-          >
-            <Flame size={19} strokeWidth={2.25} />
-          </div>
+          <FastPOSLogo size={40} variant="badge" />
           <div className="min-w-0">
             <p className="truncate font-display text-[15px] font-semibold leading-tight tracking-tight">
               {storeName}
@@ -169,12 +165,7 @@ export function Sidebar({
 
       {/* Mobile top bar */}
       <div className="no-print fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-2 border-b border-line bg-paper/90 px-3 backdrop-blur lg:hidden">
-        <div
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white"
-          style={{ background: "linear-gradient(135deg, var(--accent), var(--accent-deep))" }}
-        >
-          <Flame size={15} strokeWidth={2.25} />
-        </div>
+        <FastPOSLogo size={32} variant="badge" />
         <div className="min-w-0 flex-1">
           <p className="truncate font-display text-xs font-semibold">{storeName}</p>
           {enableDualCurrency && (

@@ -1,5 +1,5 @@
-import { Flame } from "lucide-react";
 import { redirect } from "next/navigation";
+import { FastPOSLogo } from "@/components/fastpos-logo";
 import { getSessionUser } from "@/lib/auth";
 import { ensureSeeded } from "@/lib/seed";
 import { LoginForm } from "./login-form";
@@ -24,13 +24,11 @@ export default async function LoginPage() {
         <div className="absolute inset-0 bg-gradient-to-t from-coal via-coal/35 to-coal/10" />
         <div className="relative flex h-full flex-col justify-between p-10">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-flame text-white shadow-lg shadow-flame/30">
-              <Flame size={19} strokeWidth={2.25} />
-            </div>
+            <FastPOSLogo size={46} variant="badge" />
             <div>
-              <p className="font-display text-[15px] font-semibold text-white">Bistro Lumen</p>
+              <p className="font-display text-[16px] font-bold text-white tracking-tight">Fast<span className="text-flame">POS</span></p>
               <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-white/50">
-                Point of Sale
+                Bistro Lumen · Smart Register
               </p>
             </div>
           </div>
@@ -58,13 +56,11 @@ export default async function LoginPage() {
       <div className="flex items-center justify-center bg-cream px-5 py-10 sm:px-10">
         <div className="w-full max-w-md">
           <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-flame text-white">
-              <Flame size={19} strokeWidth={2.25} />
-            </div>
+            <FastPOSLogo size={42} variant="badge" />
             <div>
-              <p className="font-display text-[15px] font-semibold">Bistro Lumen</p>
-              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-ink/45">
-                Point of Sale
+              <p className="font-display text-[16px] font-bold tracking-tight">Fast<span className="text-flame">POS</span></p>
+              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-ink/50">
+                Bistro Lumen · Point of Sale
               </p>
             </div>
           </div>
