@@ -42,3 +42,8 @@ test_*.ts
 
 # embedded postgres
 .pgdata/
+
+# android build artifacts
+android/app/build/
+android/.gradle/
+android/build/
