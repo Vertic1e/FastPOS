@@ -9,11 +9,34 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="FastPOS Web" />
     <meta name="description" content="FastPOS Web - Ultra-fast, offline-first Restaurant & Retail Point of Sale system" />
+    <link rel="apple-touch-icon" href="icon-192.svg" />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <title>FastPOS — Restaurant & Retail POS</title>
+    <script>
+      // Self-healing service worker cache flusher on script loading failure
+      window.addEventListener('error', function(e) {
+        if (e.target && (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK')) {
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(regs) {
+              for (var i = 0; i < regs.length; i++) {
+                regs[i].unregister();
+              }
+              if (window.caches) {
+                caches.keys().then(function(keys) {
+                  for (var j = 0; j < keys.length; j++) {
+                    caches.delete(keys[j]);
+                  }
+                  window.location.reload();
+                });
+              }
+            });
+          }
+        }
+      }, true);
+    </script>
   </head>
   <body class="bg-slate-950 text-slate-100 min-h-screen antialiased select-none overflow-x-hidden font-sans">
     <div id="root"></div>

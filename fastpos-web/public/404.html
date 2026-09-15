@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>FastPOS — Redirecting...</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>
+    var pathname = window.location.pathname;
+    if (pathname.toLowerCase().startsWith('/fastpos')) {
+      var remaining = pathname.substring(8);
+      var target = '/FastPOS' + remaining + window.location.search + window.location.hash;
+      window.location.replace(target);
+    } else {
+      window.location.replace('/FastPOS/');
+    }
+  </script>
+</head>
+<body style="background:#090d16;color:#f97316;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
+  <p>Loading FastPOS...</p>
+</body>
+</html>
