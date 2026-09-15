@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, DEFAULT_SETTINGS, seedInitialData } from "@/db";
-import type { StoreSettings } from "@/types";
+import type { StoreSettings, UserRole } from "@/types";
 import { Navbar } from "@/components/layout/Navbar";
 import { PosRegister } from "@/components/pos/PosRegister";
 import { OrdersList } from "@/components/orders/OrdersList";
@@ -9,12 +9,16 @@ import { InventoryManager } from "@/components/inventory/InventoryManager";
 import { ShiftManager } from "@/components/shifts/ShiftManager";
 import { SalesDashboard } from "@/components/dashboard/SalesDashboard";
 import { SettingsView } from "@/components/settings/SettingsView";
+import { RoleSwitchModal } from "@/components/common/RoleSwitchModal";
+import { ShopSwitchModal } from "@/components/common/ShopSwitchModal";
 
 export function App() {
   const [activeTab, setActiveTab] = useState<
     "pos" | "orders" | "inventory" | "shifts" | "dashboard" | "settings"
   >("pos");
   const [isHeldModalOpen, setIsHeldModalOpen] = useState(false);
+  const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
+  const [isShopModalOpen, setIsShopModalOpen] = useState(false);
   const [isDbReady, setIsDbReady] = useState(false);
 
   // Settings from DB
@@ -26,6 +30,10 @@ export function App() {
       setSettings(settingsRecord.data);
     }
   }, [settingsRecord]);
+
+  // Shops
+  const shops = useLiveQuery(() => db.shops.toArray()) || [];
+  const activeShop = shops.find((s) => s.id === (settings.activeShopId || 1)) || shops[0];
 
   // Active shift
   const shifts = useLiveQuery(() => db.shifts.toArray()) || [];
@@ -64,6 +72,55 @@ export function App() {
     }
   }, []);
 
+  const handleUpdateSettings = async (newSet: StoreSettings) => {
+    setSettings(newSet);
+    await db.settings.put({ id: "config", data: newSet });
+  };
+
+  const handleSelectRole = async (role: UserRole) => {
+    const next = { ...settings, currentRole: role };
+    await handleUpdateSettings(next);
+    if (
+      role === "cashier" &&
+      (activeTab === "inventory" || activeTab === "dashboard" || activeTab === "settings")
+    ) {
+      setActiveTab("pos");
+    }
+  };
+
+  const handleSelectShop = async (shopId: number) => {
+    const next = { ...settings, activeShopId: shopId };
+    await handleUpdateSettings(next);
+  };
+
+  const handleToggleGridCols = async () => {
+    const currentCols = settings.accessibility?.gridCols || 2;
+    const nextCols: 2 | 3 = currentCols === 2 ? 3 : 2;
+    const next: StoreSettings = {
+      ...settings,
+      accessibility: {
+        fontSize: settings.accessibility?.fontSize || "normal",
+        gridCols: nextCols,
+      },
+    };
+    await handleUpdateSettings(next);
+  };
+
+  const handleCycleFontSize = async () => {
+    const currentSize = settings.accessibility?.fontSize || "normal";
+    const order: ("normal" | "large" | "xlarge")[] = ["normal", "large", "xlarge"];
+    const nextIdx = (order.indexOf(currentSize) + 1) % order.length;
+    const nextSize = order[nextIdx];
+    const next: StoreSettings = {
+      ...settings,
+      accessibility: {
+        gridCols: settings.accessibility?.gridCols || 2,
+        fontSize: nextSize,
+      },
+    };
+    await handleUpdateSettings(next);
+  };
+
   if (!isDbReady) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400 space-y-3">
@@ -73,8 +130,15 @@ export function App() {
     );
   }
 
+  const fontSizeWrapperClass =
+    settings.accessibility?.fontSize === "xlarge"
+      ? "text-base font-medium"
+      : settings.accessibility?.fontSize === "large"
+      ? "text-[14px]"
+      : "text-sm";
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-orange-500 selection:text-white">
+    <div className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-orange-500 selection:text-white ${fontSizeWrapperClass}`}>
       {/* Top Navigation */}
       <Navbar
         activeTab={activeTab}
@@ -82,7 +146,12 @@ export function App() {
         activeShift={activeShift}
         heldCount={heldTickets.length}
         onOpenHeldModal={() => setIsHeldModalOpen(true)}
+        onOpenRoleModal={() => setIsRoleModalOpen(true)}
+        onOpenShopModal={() => setIsShopModalOpen(true)}
+        onToggleGridCols={handleToggleGridCols}
+        onCycleFontSize={handleCycleFontSize}
         settings={settings}
+        activeShop={activeShop}
         orderCountToday={todayOrderCount}
       />
 
@@ -108,10 +177,28 @@ export function App() {
         {activeTab === "settings" && (
           <SettingsView
             settings={settings}
-            onUpdateSettings={(newSet) => setSettings(newSet)}
+            onUpdateSettings={handleUpdateSettings}
           />
         )}
       </main>
+
+      {/* Modals */}
+      {isRoleModalOpen && (
+        <RoleSwitchModal
+          currentRole={settings.currentRole || "owner"}
+          ownerPin={settings.ownerPin || "1234"}
+          onClose={() => setIsRoleModalOpen(false)}
+          onSelectRole={handleSelectRole}
+        />
+      )}
+
+      {isShopModalOpen && (
+        <ShopSwitchModal
+          activeShopId={settings.activeShopId || 1}
+          onClose={() => setIsShopModalOpen(false)}
+          onSelectShop={handleSelectShop}
+        />
+      )}
     </div>
   );
 }

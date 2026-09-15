@@ -23,8 +23,15 @@ interface InventoryManagerProps {
 }
 
 export const InventoryManager: React.FC<InventoryManagerProps> = ({ settings }) => {
-  const items = useLiveQuery(() => db.menuItems.toArray()) || [];
-  const categories = useLiveQuery(() => db.categories.toArray()) || [];
+  const activeShopId = settings.activeShopId || 1;
+  const items = useLiveQuery(
+    () => db.menuItems.filter((i) => !i.shopId || i.shopId === activeShopId).toArray(),
+    [activeShopId]
+  ) || [];
+  const categories = useLiveQuery(
+    () => db.categories.filter((c) => !c.shopId || c.shopId === activeShopId).toArray(),
+    [activeShopId]
+  ) || [];
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCatId, setSelectedCatId] = useState<number | null>(null);
@@ -397,6 +404,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ settings }) 
         <CategoryEditModal
           categories={categories}
           onClose={() => setIsManagingCats(false)}
+          settings={settings}
         />
       )}
     </div>

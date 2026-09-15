@@ -43,6 +43,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   if (!orderData) return null;
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
+  const [isCustomChangeMode, setIsCustomChangeMode] = useState(false);
   const [cashTenderedUsd, setCashTenderedUsd] = useState<string>(orderData.total.toString());
   const [cashTenderedKhr, setCashTenderedKhr] = useState<string>("");
   const [currencyMode, setCurrencyMode] = useState<"USD" | "KHR">("USD");
@@ -53,9 +54,14 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   // Calculate change
   let changeUsd = 0;
   let changeKhr = 0;
-  let isEnough = false;
+  let isEnough = true;
 
-  if (currencyMode === "USD") {
+  if (!isCustomChangeMode) {
+    // Default: Assume exact cash received
+    changeUsd = 0;
+    changeKhr = 0;
+    isEnough = true;
+  } else if (currencyMode === "USD") {
     const tendered = parseFloat(cashTenderedUsd) || 0;
     changeUsd = round2(tendered - totalUsd);
     changeKhr = Math.round(changeUsd * settings.exchangeRate);
@@ -79,17 +85,14 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   };
 
   const handleExactCash = () => {
-    if (currencyMode === "USD") {
-      setCashTenderedUsd(totalUsd.toString());
-    } else {
-      setCashTenderedKhr(totalKhr.toString());
-    }
+    setIsCustomChangeMode(false);
+    setCashTenderedUsd(totalUsd.toString());
+    setCashTenderedKhr(totalKhr.toString());
   };
 
   const handleSubmitPayment = () => {
-    if (paymentMethod === "cash" && !isEnough) return;
+    if (paymentMethod === "cash" && isCustomChangeMode && !isEnough) return;
 
-    // Trigger celebration sound & confetti
     playCashRegisterSound(settings.soundEnabled);
     try {
       confetti({
@@ -100,6 +103,17 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       });
     } catch {
       // Confetti fallback
+    }
+
+    if (!isCustomChangeMode && paymentMethod === "cash") {
+      onCompleteOrder({
+        paymentMethod: "cash",
+        cashReceived: totalUsd,
+        changeDue: 0,
+        cashReceivedKhr: totalKhr,
+        changeDueKhr: 0,
+      });
+      return;
     }
 
     onCompleteOrder({
@@ -177,33 +191,72 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
         {/* Payment Method Content */}
         <div className="p-6 overflow-y-auto flex-1">
-          {paymentMethod === "cash" && (
+          {paymentMethod === "cash" && !isCustomChangeMode && (
+            <div className="space-y-5 py-2">
+              {/* Exact Cash Mode Banner */}
+              <div className="p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-center space-y-2.5">
+                <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
+                  <Banknote className="w-6 h-6" />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-base text-white">Exact Cash Tendered</h4>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Amount: <span className="font-mono font-bold text-white">{money(totalUsd, settings.currency)}</span>
+                    {settings.enableDualCurrency && ` (${khr(totalKhr)})`}
+                  </p>
+                  <span className="inline-block mt-1 text-[11px] font-semibold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded-full">
+                    Change Due: $0.00 (Exact)
+                  </span>
+                </div>
+              </div>
+
+              {/* Optional switch to custom change calculator */}
+              <div className="text-center pt-1">
+                <button
+                  type="button"
+                  onClick={() => setIsCustomChangeMode(true)}
+                  className="text-xs text-orange-400 hover:text-orange-300 font-bold underline"
+                >
+                  Need change calculation for larger bill? Tap here →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {paymentMethod === "cash" && isCustomChangeMode && (
             <div className="space-y-5">
-              {/* Currency Toggle (USD or KHR tender) */}
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-300">Tender Currency</span>
-                <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
-                  <button
-                    onClick={() => setCurrencyMode("USD")}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
-                      currencyMode === "USD"
-                        ? "bg-orange-500 text-white"
-                        : "text-slate-400 hover:text-white"
-                    }`}
-                  >
-                    USD ($)
-                  </button>
-                  <button
-                    onClick={() => setCurrencyMode("KHR")}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
-                      currencyMode === "KHR"
-                        ? "bg-orange-500 text-white"
-                        : "text-slate-400 hover:text-white"
-                    }`}
-                  >
-                    KHR (៛)
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => handleExactCash()}
+                  className="text-xs text-orange-400 hover:text-orange-300 font-semibold underline"
+                >
+                  ← Reset to Exact Cash
+                </button>
+              </div>
+
+              <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
+                <button
+                  onClick={() => setCurrencyMode("USD")}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition ${
+                    currencyMode === "USD"
+                      ? "bg-orange-500 text-white"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  USD ($)
+                </button>
+                <button
+                  onClick={() => setCurrencyMode("KHR")}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition ${
+                    currencyMode === "KHR"
+                      ? "bg-orange-500 text-white"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  KHR (៛)
+                </button>
               </div>
 
               {/* Cash Input Field */}

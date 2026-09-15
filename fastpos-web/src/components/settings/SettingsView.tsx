@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import {
   Settings as SettingsIcon,
   Save,
@@ -13,9 +14,18 @@ import {
   CheckCircle2,
   AlertTriangle,
   FileJson,
+  ShieldCheck,
+  UserCheck,
+  Lock,
+  Grid2X2,
+  Grid3X3,
+  Type,
+  Plus,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { db, DEFAULT_SETTINGS, seedInitialData } from "@/db";
-import type { StoreSettings } from "@/types";
+import type { StoreSettings, UserRole, FontSizeScale, Shop } from "@/types";
 
 interface SettingsViewProps {
   settings: StoreSettings;
@@ -29,10 +39,49 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [formData, setFormData] = useState<StoreSettings>({ ...settings });
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [showPin, setShowPin] = useState(false);
+
+  // Shop management state
+  const shops = useLiveQuery(() => db.shops.toArray()) || [];
+  const [newBranchName, setNewBranchName] = useState("");
+  const [newBranchAddress, setNewBranchAddress] = useState("");
+  const [newBranchPhone, setNewBranchPhone] = useState("");
+  const [isAddingBranch, setIsAddingBranch] = useState(false);
 
   const handleChange = (field: keyof StoreSettings, val: unknown) => {
     setFormData((prev) => ({ ...prev, [field]: val }));
     setSaveSuccess(false);
+  };
+
+  const handleAccessibilityChange = <K extends keyof NonNullable<StoreSettings["accessibility"]>>(
+    field: K,
+    val: NonNullable<StoreSettings["accessibility"]>[K]
+  ) => {
+    setFormData((prev) => ({
+      ...prev,
+      accessibility: {
+        gridCols: prev.accessibility?.gridCols ?? 2,
+        fontSize: prev.accessibility?.fontSize ?? "normal",
+        [field]: val,
+      },
+    }));
+    setSaveSuccess(false);
+  };
+
+  const handleCreateBranch = async () => {
+    if (!newBranchName.trim()) return;
+    const newId = (await db.shops.add({
+      name: newBranchName.trim(),
+      address: newBranchAddress.trim() || "Branch Address",
+      phone: newBranchPhone.trim() || "+855 12 000 000",
+      isDefault: false,
+    })) as number;
+
+    setFormData((prev) => ({ ...prev, activeShopId: newId }));
+    setNewBranchName("");
+    setNewBranchAddress("");
+    setNewBranchPhone("");
+    setIsAddingBranch(false);
   };
 
   const handleSave = async () => {
@@ -199,6 +248,267 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               onChange={(e) => handleChange("address", e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 focus:outline-none focus:border-orange-500"
             />
+          </div>
+        </div>
+      </div>
+
+      {/* Multi-Shop / Branch Management */}
+      <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-4 shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-2">
+            <Store className="w-5 h-5 text-orange-400" />
+            <h3 className="font-extrabold text-base text-white">Multi-Shop & Branches</h3>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsAddingBranch(!isAddingBranch)}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 text-xs text-orange-400 font-bold transition"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add Branch</span>
+          </button>
+        </div>
+
+        <p className="text-xs text-slate-400">
+          Seamlessly link and switch between different branch locations. Each shop maintains its own isolated catalog and orders.
+        </p>
+
+        {isAddingBranch && (
+          <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+            <h4 className="text-xs font-bold text-slate-200">Register New Shop Branch</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+              <input
+                type="text"
+                placeholder="Branch Name (e.g. Airport Kiosk)"
+                value={newBranchName}
+                onChange={(e) => setNewBranchName(e.target.value)}
+                className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-orange-500"
+              />
+              <input
+                type="text"
+                placeholder="Address / Location"
+                value={newBranchAddress}
+                onChange={(e) => setNewBranchAddress(e.target.value)}
+                className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-orange-500"
+              />
+              <input
+                type="text"
+                placeholder="Phone Number"
+                value={newBranchPhone}
+                onChange={(e) => setNewBranchPhone(e.target.value)}
+                className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-orange-500"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsAddingBranch(false)}
+                className="px-3 py-1.5 rounded-xl text-xs text-slate-400 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateBranch}
+                className="px-4 py-1.5 rounded-xl bg-orange-500 text-white font-bold text-xs shadow-md shadow-orange-500/20 active:scale-95 transition"
+              >
+                Save Branch
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          {shops.map((s) => {
+            const isSelected = (formData.activeShopId || 1) === s.id;
+            return (
+              <div
+                key={s.id}
+                onClick={() => handleChange("activeShopId", s.id)}
+                className={`p-3.5 rounded-2xl border cursor-pointer transition flex items-center justify-between ${
+                  isSelected
+                    ? "bg-orange-500/10 border-orange-500/50"
+                    : "bg-slate-950 border-slate-800 hover:border-slate-700"
+                }`}
+              >
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-white text-sm">{s.name}</span>
+                    {isSelected && (
+                      <span className="px-2 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-extrabold">
+                        Active
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-slate-400 text-[11px] mt-0.5">{s.address || "No address set"}</p>
+                </div>
+                <input
+                  type="radio"
+                  name="activeShop"
+                  checked={isSelected}
+                  onChange={() => handleChange("activeShopId", s.id)}
+                  className="w-4 h-4 text-orange-500 focus:ring-0 cursor-pointer"
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Role & Security (Owner vs Cashier) */}
+      <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-4 shadow-xl">
+        <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
+          <ShieldCheck className="w-5 h-5 text-orange-400" />
+          <h3 className="font-extrabold text-base text-white">Role & Access Control</h3>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+          <div className="space-y-1">
+            <label className="font-semibold text-slate-300">Active User Role</label>
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => handleChange("currentRole", "owner")}
+                className={`p-3 rounded-2xl border font-bold flex flex-col items-center gap-1.5 transition ${
+                  formData.currentRole === "owner"
+                    ? "bg-orange-500/15 border-orange-500 text-orange-300 shadow-md"
+                    : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
+                }`}
+              >
+                <ShieldCheck className="w-5 h-5 text-orange-400" />
+                <span>Owner (Full Access)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleChange("currentRole", "cashier")}
+                className={`p-3 rounded-2xl border font-bold flex flex-col items-center gap-1.5 transition ${
+                  formData.currentRole === "cashier"
+                    ? "bg-emerald-500/15 border-emerald-500 text-emerald-300 shadow-md"
+                    : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
+                }`}
+              >
+                <UserCheck className="w-5 h-5 text-emerald-400" />
+                <span>Cashier (Register Only)</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="font-semibold text-slate-300">Owner Security PIN</label>
+            <p className="text-[11px] text-slate-500 mb-1">
+              Required to switch from Cashier to Owner mode or access restricted settings (Default: 1234).
+            </p>
+            <div className="relative">
+              <input
+                type={showPin ? "text" : "password"}
+                maxLength={6}
+                value={formData.ownerPin || "1234"}
+                onChange={(e) => handleChange("ownerPin", e.target.value)}
+                placeholder="4-digit PIN"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 font-mono font-bold tracking-widest focus:outline-none focus:border-orange-500"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPin(!showPin)}
+                className="absolute right-3 top-2.5 text-slate-400 hover:text-white"
+              >
+                {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Accessibility Options */}
+      <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-4 shadow-xl">
+        <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
+          <Type className="w-5 h-5 text-indigo-400" />
+          <h3 className="font-extrabold text-base text-white">Accessibility & Display Options</h3>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+          {/* Grid Density */}
+          <div className="space-y-1">
+            <label className="font-semibold text-slate-300">Item Grid Density</label>
+            <p className="text-[11px] text-slate-500 mb-2">
+              Choose card layout density optimized for mobile screens and quick tapping.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => handleAccessibilityChange("gridCols", 2)}
+                className={`p-3 rounded-2xl border font-bold flex items-center justify-center gap-2 transition ${
+                  (formData.accessibility?.gridCols || 2) === 2
+                    ? "bg-orange-500/15 border-orange-500 text-orange-300"
+                    : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
+                }`}
+              >
+                <Grid2X2 className="w-4 h-4 text-orange-400" />
+                <span>2x2 (Larger Cards)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleAccessibilityChange("gridCols", 3)}
+                className={`p-3 rounded-2xl border font-bold flex items-center justify-center gap-2 transition ${
+                  formData.accessibility?.gridCols === 3
+                    ? "bg-orange-500/15 border-orange-500 text-orange-300"
+                    : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
+                }`}
+              >
+                <Grid3X3 className="w-4 h-4 text-orange-400" />
+                <span>3x3 (Compact Grid)</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Font Size Scaling */}
+          <div className="space-y-1">
+            <label className="font-semibold text-slate-300">Interface Font Size</label>
+            <p className="text-[11px] text-slate-500 mb-2">
+              Increase typography scale across register, item cards, and orders for enhanced legibility.
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => handleAccessibilityChange("fontSize", "normal")}
+                className={`p-3 rounded-2xl border font-bold flex flex-col items-center gap-1 transition ${
+                  (formData.accessibility?.fontSize || "normal") === "normal"
+                    ? "bg-orange-500/15 border-orange-500 text-orange-300"
+                    : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
+                }`}
+              >
+                <span className="text-xs">A</span>
+                <span className="text-[10px]">Normal</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleAccessibilityChange("fontSize", "large")}
+                className={`p-3 rounded-2xl border font-bold flex flex-col items-center gap-1 transition ${
+                  formData.accessibility?.fontSize === "large"
+                    ? "bg-orange-500/15 border-orange-500 text-orange-300"
+                    : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
+                }`}
+              >
+                <span className="text-sm font-extrabold">A+</span>
+                <span className="text-[10px]">Large</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleAccessibilityChange("fontSize", "xlarge")}
+                className={`p-3 rounded-2xl border font-bold flex flex-col items-center gap-1 transition ${
+                  formData.accessibility?.fontSize === "xlarge"
+                    ? "bg-orange-500/15 border-orange-500 text-orange-300"
+                    : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
+                }`}
+              >
+                <span className="text-base font-extrabold">A++</span>
+                <span className="text-[10px]">Extra Large</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

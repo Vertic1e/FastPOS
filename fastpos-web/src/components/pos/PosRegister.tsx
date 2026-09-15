@@ -41,9 +41,19 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
   isHeldModalOpen,
   setIsHeldModalOpen,
 }) => {
-  const categories = useLiveQuery(() => db.categories.filter((c) => c.isActive).sortBy("sortOrder")) || [];
-  const items = useLiveQuery(() => db.menuItems.filter((i) => i.isActive).toArray()) || [];
-  const heldTickets = useLiveQuery(() => db.heldTickets.toArray()) || [];
+  const activeShopId = settings.activeShopId || 1;
+  const categories = useLiveQuery(
+    () => db.categories.filter((c) => c.isActive && (!c.shopId || c.shopId === activeShopId)).sortBy("sortOrder"),
+    [activeShopId]
+  ) || [];
+  const items = useLiveQuery(
+    () => db.menuItems.filter((i) => i.isActive && (!i.shopId || i.shopId === activeShopId)).toArray(),
+    [activeShopId]
+  ) || [];
+  const heldTickets = useLiveQuery(
+    () => db.heldTickets.filter((h) => !h.shopId || h.shopId === activeShopId).toArray(),
+    [activeShopId]
+  ) || [];
 
   const [selectedCatId, setSelectedCatId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -158,6 +168,7 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
   const handleHoldTicket = async (tableName: string) => {
     if (cartLines.length === 0) return;
     await db.heldTickets.add({
+      shopId: activeShopId,
       name: tableName,
       tableNumber: tableName,
       itemCount: totalCartQty,
@@ -198,6 +209,7 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
     const orderNumber = 1001 + totalOrdersCount;
 
     const newOrder: Order = {
+      shopId: activeShopId,
       orderNumber,
       status: "completed",
       subtotal: checkoutData.subtotal,
@@ -286,6 +298,11 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
     setIsMobileCartOpen(false);
   };
 
+  const gridColsClass =
+    settings.accessibility?.gridCols === 3
+      ? "grid grid-cols-3 sm:grid-cols-4 xl:grid-cols-5 gap-2"
+      : "grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-2.5";
+
   return (
     <div className="flex-1 flex flex-col lg:flex-row h-[calc(100vh-3rem)] overflow-hidden bg-slate-950">
       {/* Left Catalog Area */}
@@ -348,7 +365,7 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
           </div>
         </div>
 
-        {/* 2-Column Responsive Item Grid */}
+        {/* 2 or 3 Column Responsive Item Grid */}
         <div className="flex-1 overflow-y-auto p-2.5 sm:p-3.5 pb-28 lg:pb-6">
           {filteredItems.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500">
@@ -357,7 +374,7 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
               <p className="text-[11px] text-slate-500 mt-0.5">Try a different search term</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-2.5">
+            <div className={gridColsClass}>
               {filteredItems.map((item) => (
                 <ItemCard
                   key={item.id}
@@ -366,6 +383,7 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
                   currency={settings.currency}
                   enableDualCurrency={settings.enableDualCurrency}
                   exchangeRate={settings.exchangeRate}
+                  accessibility={settings.accessibility}
                 />
               ))}
             </div>

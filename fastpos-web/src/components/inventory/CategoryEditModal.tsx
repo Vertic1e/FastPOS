@@ -1,17 +1,19 @@
 import React, { useState } from "react";
 import { X, Plus, Trash2, Check } from "lucide-react";
-import type { Category } from "@/types";
+import type { Category, StoreSettings } from "@/types";
 import { db } from "@/db";
 import { CategoryIcon } from "@/components/common/CategoryIcon";
 
 interface CategoryEditModalProps {
   categories: Category[];
   onClose: () => void;
+  settings: StoreSettings;
 }
 
 export const CategoryEditModal: React.FC<CategoryEditModalProps> = ({
   categories,
   onClose,
+  settings,
 }) => {
   const [newCatName, setNewCatName] = useState("");
   const [newCatColor, setNewCatColor] = useState("#f97316");
@@ -48,6 +50,7 @@ export const CategoryEditModal: React.FC<CategoryEditModalProps> = ({
     if (!newCatName.trim()) return;
 
     await db.categories.add({
+      shopId: settings.activeShopId || 1,
       name: newCatName.trim(),
       color: newCatColor,
       icon: newCatIcon,

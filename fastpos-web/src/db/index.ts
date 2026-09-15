@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from "dexie";
 import type {
+  Shop,
   Category,
   MenuItem,
   Order,
@@ -26,6 +27,13 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   khqrMerchantId: "bistro_lumen@aclb",
   soundEnabled: true,
   accentColor: "#f97316",
+  ownerPin: "1234",
+  currentRole: "owner",
+  activeShopId: 1,
+  accessibility: {
+    gridCols: 2,
+    fontSize: "normal",
+  },
 };
 
 interface SettingRecord {
@@ -34,6 +42,7 @@ interface SettingRecord {
 }
 
 export class FastPosDB extends Dexie {
+  shops!: EntityTable<Shop, "id">;
   categories!: EntityTable<Category, "id">;
   menuItems!: EntityTable<MenuItem, "id">;
   orders!: EntityTable<Order, "id">;
@@ -46,15 +55,16 @@ export class FastPosDB extends Dexie {
 
   constructor() {
     super("FastPosDatabase");
-    this.version(1).stores({
-      categories: "++id, name, sortOrder, isActive",
-      menuItems: "++id, categoryId, name, sku, price, stock, isActive, createdAt",
-      orders: "++id, orderNumber, status, paymentMethod, shiftId, createdAt",
+    this.version(2).stores({
+      shops: "++id, name, isDefault",
+      categories: "++id, shopId, name, sortOrder, isActive",
+      menuItems: "++id, shopId, categoryId, name, sku, price, stock, isActive, createdAt",
+      orders: "++id, shopId, orderNumber, status, paymentMethod, shiftId, createdAt",
       orderItems: "++id, orderId, menuItemId",
-      shifts: "++id, status, openedAt, closedAt",
+      shifts: "++id, shopId, status, openedAt, closedAt",
       cashMovements: "++id, shiftId, type, createdAt",
       stockMovements: "++id, itemId, reason, createdAt",
-      heldTickets: "++id, name, tableNumber, createdAt",
+      heldTickets: "++id, shopId, name, tableNumber, createdAt",
       settings: "id",
     });
   }
@@ -64,12 +74,13 @@ export const db = new FastPosDB();
 
 // Auto-seed initial store data if database is empty
 export async function seedInitialData(force = false) {
-  const catCount = await db.categories.count();
-  if (catCount > 0 && !force) {
+  const shopCount = await db.shops.count();
+  if (shopCount > 0 && !force) {
     return;
   }
 
   if (force) {
+    await db.shops.clear();
     await db.categories.clear();
     await db.menuItems.clear();
     await db.orders.clear();
@@ -81,24 +92,43 @@ export async function seedInitialData(force = false) {
     await db.settings.clear();
   }
 
-  // 1. Settings
-  await db.settings.put({ id: "config", data: DEFAULT_SETTINGS });
+  // 1. Shops (Multi-shop linking)
+  const shop1Id = (await db.shops.add({
+    name: "Bistro Lumen — Main",
+    address: "128 Ember Street, Riverside Plaza",
+    phone: "+855 12 345 678",
+    isDefault: true,
+  })) as number;
 
-  // 2. Categories
+  const shop2Id = (await db.shops.add({
+    name: "Bistro Express — Downtown",
+    address: "45 Central Blvd, Floor 1",
+    phone: "+855 12 987 654",
+    isDefault: false,
+  })) as number;
+
+  // 2. Settings
+  const initialSettings: StoreSettings = {
+    ...DEFAULT_SETTINGS,
+    activeShopId: shop1Id,
+  };
+  await db.settings.put({ id: "config", data: initialSettings });
+
+  // 3. Categories (Shop 1)
   const catIds = (await db.categories.bulkAdd(
     [
-      { name: "Signature Coffee", color: "#f97316", icon: "coffee", sortOrder: 1, isActive: true },
-      { name: "Teas & Refreshers", color: "#10b981", icon: "cup-soda", sortOrder: 2, isActive: true },
-      { name: "Artisan Pastries", color: "#eab308", icon: "croissant", sortOrder: 3, isActive: true },
-      { name: "Gourmet Burgers", color: "#ef4444", icon: "sandwich", sortOrder: 4, isActive: true },
-      { name: "Sides & Extras", color: "#8b5cf6", icon: "utensils", sortOrder: 5, isActive: true },
+      { shopId: shop1Id, name: "Signature Coffee", color: "#f97316", icon: "coffee", sortOrder: 1, isActive: true },
+      { shopId: shop1Id, name: "Teas & Refreshers", color: "#10b981", icon: "cup-soda", sortOrder: 2, isActive: true },
+      { shopId: shop1Id, name: "Artisan Pastries", color: "#eab308", icon: "croissant", sortOrder: 3, isActive: true },
+      { shopId: shop1Id, name: "Gourmet Burgers", color: "#ef4444", icon: "sandwich", sortOrder: 4, isActive: true },
+      { shopId: shop1Id, name: "Sides & Extras", color: "#8b5cf6", icon: "utensils", sortOrder: 5, isActive: true },
     ],
     { allKeys: true }
   )) as number[];
 
   const [coffeeId, teaId, pastryId, burgerId, sidesId] = catIds;
 
-  // 3. Menu Items
+  // Modifiers
   const standardCoffeeMods = [
     {
       name: "Size",
@@ -129,9 +159,15 @@ export async function seedInitialData(force = false) {
     },
   ];
 
+  // 4. Menu Items with sample images (clean SVG data URLs)
+  const latteSvg = `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="%23f97316"/><path d="M30 35h40v30a20 20 0 0 1-20 20h0a20 20 0 0 1-20-20V35z" fill="%23fff"/><path d="M70 42h8a8 8 0 0 1 0 16h-8" stroke="%23fff" stroke-width="6" fill="none"/><circle cx="50" cy="50" r="10" fill="%23fb923c"/></svg>`;
+  const coldBrewSvg = `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="%23ea580c"/><rect x="35" y="25" width="30" height="55" rx="10" fill="%23fff"/><rect x="40" y="35" width="20" height="40" rx="5" fill="%239a3412"/><line x1="48" y1="15" x2="52" y2="45" stroke="%23f97316" stroke-width="4"/></svg>`;
+  const burgerSvg = `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="%23ef4444"/><path d="M25 45a25 25 0 0 1 50 0H25z" fill="%23f59e0b"/><rect x="22" y="48" width="56" height="8" rx="4" fill="%2310b981"/><rect x="20" y="58" width="60" height="12" rx="6" fill="%2378350f"/><rect x="25" y="72" width="50" height="10" rx="5" fill="%23f59e0b"/></svg>`;
+  const croissantSvg = `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="%23eab308"/><path d="M25 60 C 25 35, 75 35, 75 60 C 70 70, 30 70, 25 60 Z" fill="%23fff"/><circle cx="50" cy="52" r="8" fill="%23ca8a04"/></svg>`;
+
   const items: MenuItem[] = [
-    // Coffee
     {
+      shopId: shop1Id,
       categoryId: coffeeId,
       name: "Iced Spanish Latte",
       sku: "CF-01",
@@ -141,11 +177,13 @@ export async function seedInitialData(force = false) {
       lowStockAt: 15,
       trackStock: true,
       color: "#f97316",
+      image: latteSvg,
       modifiers: standardCoffeeMods,
       isActive: true,
       createdAt: new Date(),
     },
     {
+      shopId: shop1Id,
       categoryId: coffeeId,
       name: "Salted Caramel Cold Brew",
       sku: "CF-02",
@@ -155,11 +193,13 @@ export async function seedInitialData(force = false) {
       lowStockAt: 10,
       trackStock: true,
       color: "#ea580c",
+      image: coldBrewSvg,
       modifiers: standardCoffeeMods,
       isActive: true,
       createdAt: new Date(),
     },
     {
+      shopId: shop1Id,
       categoryId: coffeeId,
       name: "Espresso Americano",
       sku: "CF-03",
@@ -183,22 +223,7 @@ export async function seedInitialData(force = false) {
       createdAt: new Date(),
     },
     {
-      categoryId: coffeeId,
-      name: "Velvet Flat White",
-      sku: "CF-04",
-      price: 3.5,
-      cost: 0.95,
-      stock: 60,
-      lowStockAt: 12,
-      trackStock: true,
-      color: "#9a3412",
-      modifiers: standardCoffeeMods,
-      isActive: true,
-      createdAt: new Date(),
-    },
-
-    // Teas
-    {
+      shopId: shop1Id,
       categoryId: teaId,
       name: "Peach Jasmine Green Tea",
       sku: "TE-01",
@@ -208,45 +233,12 @@ export async function seedInitialData(force = false) {
       lowStockAt: 10,
       trackStock: true,
       color: "#10b981",
-      modifiers: [
-        {
-          name: "Sweetness",
-          required: false,
-          options: [
-            { name: "100%", price: 0 },
-            { name: "50%", price: 0 },
-            { name: "No Sugar", price: 0 },
-          ],
-        },
-        {
-          name: "Toppings",
-          required: false,
-          options: [
-            { name: "Aloe Vera Jelly", price: 0.5 },
-            { name: "Chia Seeds", price: 0.5 },
-          ],
-        },
-      ],
+      modifiers: [],
       isActive: true,
       createdAt: new Date(),
     },
     {
-      categoryId: teaId,
-      name: "Kyoto Matcha Cream Latte",
-      sku: "TE-02",
-      price: 4.5,
-      cost: 1.5,
-      stock: 35,
-      lowStockAt: 8,
-      trackStock: true,
-      color: "#059669",
-      modifiers: standardCoffeeMods,
-      isActive: true,
-      createdAt: new Date(),
-    },
-
-    // Pastries
-    {
+      shopId: shop1Id,
       categoryId: pastryId,
       name: "Almond Butter Croissant",
       sku: "BA-01",
@@ -256,42 +248,13 @@ export async function seedInitialData(force = false) {
       lowStockAt: 5,
       trackStock: true,
       color: "#eab308",
-      modifiers: [
-        {
-          name: "Preparation",
-          required: false,
-          options: [
-            { name: "Warmed Up", price: 0 },
-            { name: "Room Temperature", price: 0 },
-          ],
-        },
-      ],
+      image: croissantSvg,
+      modifiers: [],
       isActive: true,
       createdAt: new Date(),
     },
     {
-      categoryId: pastryId,
-      name: "Dark Chocolate Brownie",
-      sku: "BA-02",
-      price: 2.95,
-      cost: 0.85,
-      stock: 18,
-      lowStockAt: 5,
-      trackStock: true,
-      color: "#ca8a04",
-      modifiers: [
-        {
-          name: "Add-on",
-          required: false,
-          options: [{ name: "Vanilla Ice Cream Scoop", price: 1.25 }],
-        },
-      ],
-      isActive: true,
-      createdAt: new Date(),
-    },
-
-    // Burgers
-    {
+      shopId: shop1Id,
       categoryId: burgerId,
       name: "Truffle Angus Burger",
       sku: "BG-01",
@@ -301,56 +264,22 @@ export async function seedInitialData(force = false) {
       lowStockAt: 6,
       trackStock: true,
       color: "#ef4444",
+      image: burgerSvg,
       modifiers: [
         {
           name: "Patty Doneness",
           required: true,
           options: [
-            { name: "Medium Rare", price: 0 },
             { name: "Medium", price: 0 },
             { name: "Well Done", price: 0 },
           ],
         },
-        {
-          name: "Extras",
-          required: false,
-          options: [
-            { name: "Crispy Bacon", price: 1.5 },
-            { name: "Extra Cheddar", price: 1.0 },
-            { name: "Fried Egg", price: 1.0 },
-          ],
-        },
       ],
       isActive: true,
       createdAt: new Date(),
     },
     {
-      categoryId: burgerId,
-      name: "Spicy Crispy Chicken Burger",
-      sku: "BG-02",
-      price: 7.25,
-      cost: 2.9,
-      stock: 28,
-      lowStockAt: 6,
-      trackStock: true,
-      color: "#dc2626",
-      modifiers: [
-        {
-          name: "Spice Level",
-          required: true,
-          options: [
-            { name: "Mild", price: 0 },
-            { name: "Hot", price: 0 },
-            { name: "Inferno 🔥", price: 0 },
-          ],
-        },
-      ],
-      isActive: true,
-      createdAt: new Date(),
-    },
-
-    // Sides
-    {
+      shopId: shop1Id,
       categoryId: sidesId,
       name: "Parmesan Truffle Fries",
       sku: "SD-01",
@@ -360,30 +289,38 @@ export async function seedInitialData(force = false) {
       lowStockAt: 10,
       trackStock: true,
       color: "#8b5cf6",
-      modifiers: [
-        {
-          name: "Dipping Sauce",
-          required: false,
-          options: [
-            { name: "Truffle Mayo", price: 0 },
-            { name: "Spicy Sriracha Dip", price: 0 },
-            { name: "Garlic Aioli", price: 0 },
-          ],
-        },
-      ],
+      modifiers: [],
+      isActive: true,
+      createdAt: new Date(),
+    },
+
+    // Categories & items for Shop 2 (Downtown Express)
+    {
+      shopId: shop2Id,
+      categoryId: null,
+      name: "Express Filter Coffee",
+      sku: "EX-01",
+      price: 2.0,
+      cost: 0.5,
+      stock: 100,
+      lowStockAt: 15,
+      trackStock: true,
+      color: "#f97316",
+      modifiers: [],
       isActive: true,
       createdAt: new Date(),
     },
     {
-      categoryId: sidesId,
-      name: "Cajun Onion Rings",
-      sku: "SD-02",
-      price: 3.75,
-      cost: 1.0,
+      shopId: shop2Id,
+      categoryId: null,
+      name: "Grab & Go Egg Brioche",
+      sku: "EX-02",
+      price: 3.5,
+      cost: 1.2,
       stock: 40,
       lowStockAt: 8,
       trackStock: true,
-      color: "#7c3aed",
+      color: "#eab308",
       modifiers: [],
       isActive: true,
       createdAt: new Date(),
@@ -392,8 +329,9 @@ export async function seedInitialData(force = false) {
 
   await db.menuItems.bulkAdd(items);
 
-  // 4. Initial Open Shift
+  // 5. Initial Open Shift for Shop 1
   const shiftId = await db.shifts.add({
+    shopId: shop1Id,
     status: "open",
     openedAt: new Date(Date.now() - 3600 * 1000 * 4),
     openedBy: "Alex Rivers (Lead Cashier)",
@@ -410,19 +348,22 @@ export async function seedInitialData(force = false) {
     refundsTotalUsd: 0,
   });
 
-  // 5. Seed some sample historical orders today
+  // 6. Sample order for Shop 1
   const order1Id = await db.orders.add({
+    shopId: shop1Id,
     orderNumber: 1001,
     status: "completed",
     subtotal: 12.25,
     tax: 1.01,
     total: 13.26,
     totalKhr: 53040,
-    paymentMethod: "khqr",
+    paymentMethod: "cash",
+    cashReceived: 13.26,
+    changeDue: 0,
     cashierName: "Alex Rivers",
     tableNumber: "T-04",
     exchangeRate: 4000,
-    itemCount: 3,
+    itemCount: 2,
     shiftId: shiftId as number,
     createdAt: new Date(Date.now() - 3600 * 1000 * 2.5),
   });
@@ -446,93 +387,11 @@ export async function seedInitialData(force = false) {
     },
   ]);
 
-  const order2Id = await db.orders.add({
-    orderNumber: 1002,
-    status: "completed",
-    subtotal: 10.45,
-    tax: 0.86,
-    total: 11.31,
-    totalKhr: 45240,
-    paymentMethod: "cash",
-    cashReceived: 20.0,
-    changeDue: 8.69,
-    cashReceivedKhr: 80000,
-    changeDueKhr: 34760,
-    cashierName: "Alex Rivers",
-    tableNumber: "Takeout",
-    exchangeRate: 4000,
-    itemCount: 2,
-    shiftId: shiftId as number,
-    createdAt: new Date(Date.now() - 3600 * 1000 * 1.2),
-  });
-
-  await db.orderItems.bulkAdd([
-    {
-      orderId: order2Id as number,
-      name: "Kyoto Matcha Cream Latte",
-      unitPrice: 4.5,
-      qty: 1,
-      modifiers: [],
-      lineTotal: 4.5,
-    },
-    {
-      orderId: order2Id as number,
-      name: "Dark Chocolate Brownie",
-      unitPrice: 4.2,
-      qty: 1,
-      modifiers: [{ group: "Add-on", option: "Vanilla Ice Cream Scoop", price: 1.25 }],
-      lineTotal: 4.2,
-    },
-    {
-      orderId: order2Id as number,
-      name: "Almond Butter Croissant",
-      unitPrice: 3.2,
-      qty: 1,
-      modifiers: [],
-      lineTotal: 3.2,
-    },
-  ]);
-
-  // Update shift figures
   await db.shifts.update(shiftId as number, {
-    totalSalesUsd: 24.57,
-    totalSalesKhr: 98280,
-    totalOrders: 2,
-    cashSalesUsd: 11.31,
-    qrSalesUsd: 13.26,
-    expectedCashUsd: 111.31,
-  });
-
-  // Seed 1 held ticket
-  await db.heldTickets.add({
-    name: "VIP Table 2",
-    tableNumber: "T-02",
-    itemCount: 2,
-    subtotal: 12.75,
-    lines: [
-      {
-        key: "demo-held-1",
-        menuItemId: 1,
-        name: "Iced Spanish Latte",
-        color: "#f97316",
-        basePrice: 3.75,
-        qty: 2,
-        modifiers: [
-          { group: "Size", option: "Large (16oz)", price: 0.75 },
-          { group: "Milk Choice", option: "Oat Milk", price: 0.65 },
-        ],
-        note: "Less ice please",
-      },
-      {
-        key: "demo-held-2",
-        menuItemId: 7,
-        name: "Almond Butter Croissant",
-        color: "#eab308",
-        basePrice: 3.2,
-        qty: 1,
-        modifiers: [{ group: "Preparation", option: "Warmed Up", price: 0 }],
-      },
-    ],
-    createdAt: new Date(),
+    totalSalesUsd: 13.26,
+    totalSalesKhr: 53040,
+    totalOrders: 1,
+    cashSalesUsd: 13.26,
+    expectedCashUsd: 113.26,
   });
 }

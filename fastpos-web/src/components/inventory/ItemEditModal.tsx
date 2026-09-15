@@ -29,7 +29,40 @@ export const ItemEditModal: React.FC<ItemEditModalProps> = ({
   const [lowStockAt, setLowStockAt] = useState(item?.lowStockAt?.toString() || "10");
   const [trackStock, setTrackStock] = useState(item?.trackStock ?? true);
   const [color, setColor] = useState(item?.color || "#f97316");
+  const [image, setImage] = useState<string | undefined>(item?.image);
   const [modifiers, setModifiers] = useState<ModifierGroup[]>(item?.modifiers || []);
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const maxDim = 500;
+        let w = img.width;
+        let h = img.height;
+        if (w > maxDim || h > maxDim) {
+          if (w > h) {
+            h = Math.round((h * maxDim) / w);
+            w = maxDim;
+          } else {
+            w = Math.round((w * maxDim) / h);
+            h = maxDim;
+          }
+        }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx?.drawImage(img, 0, 0, w, h);
+        setImage(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      img.src = ev.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
 
   const colorPalette = [
     "#f97316", // orange
@@ -124,6 +157,7 @@ export const ItemEditModal: React.FC<ItemEditModalProps> = ({
     const parsedLow = parseInt(lowStockAt) || 10;
 
     const payload: Partial<MenuItem> = {
+      shopId: item?.shopId || settings.activeShopId || 1,
       name: name.trim(),
       sku: sku.trim() || undefined,
       categoryId,
@@ -133,6 +167,7 @@ export const ItemEditModal: React.FC<ItemEditModalProps> = ({
       lowStockAt: parsedLow,
       trackStock,
       color,
+      image,
       modifiers,
       isActive: true,
       createdAt: item?.createdAt || new Date(),
@@ -165,6 +200,49 @@ export const ItemEditModal: React.FC<ItemEditModalProps> = ({
 
         {/* Scrollable Form */}
         <div className="p-5 overflow-y-auto flex-1 space-y-4 text-xs">
+          {/* Image Upload Area */}
+          <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="font-bold text-slate-200">Product Photo</span>
+                <p className="text-[10px] text-slate-500">Camera or photo gallery upload</p>
+              </div>
+              {image && (
+                <button
+                  type="button"
+                  onClick={() => setImage(undefined)}
+                  className="text-[11px] text-rose-400 hover:underline"
+                >
+                  Remove Photo
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3 pt-1">
+              {image ? (
+                <div className="w-16 h-16 rounded-xl overflow-hidden border border-slate-750 shrink-0 bg-slate-900">
+                  <img src={image} alt="Preview" className="w-full h-full object-cover" />
+                </div>
+              ) : (
+                <div className="w-16 h-16 rounded-xl border border-dashed border-slate-700 bg-slate-900/50 flex flex-col items-center justify-center text-slate-500 shrink-0">
+                  <span className="text-[9px]">No photo</span>
+                </div>
+              )}
+
+              <label className="flex-1 cursor-pointer">
+                <div className="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-750 text-center font-bold text-xs text-orange-400 transition active:scale-95">
+                  {image ? "Change Photo" : "Upload Photo"}
+                </div>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+              </label>
+            </div>
+          </div>
+
           {/* Item Name & SKU */}
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2 space-y-1">

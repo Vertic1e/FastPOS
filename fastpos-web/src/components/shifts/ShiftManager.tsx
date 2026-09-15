@@ -24,7 +24,11 @@ interface ShiftManagerProps {
 }
 
 export const ShiftManager: React.FC<ShiftManagerProps> = ({ settings }) => {
-  const shifts = useLiveQuery(() => db.shifts.orderBy("openedAt").reverse().toArray()) || [];
+  const activeShopId = settings.activeShopId || 1;
+  const shifts = useLiveQuery(
+    () => db.shifts.filter((s) => !s.shopId || s.shopId === activeShopId).reverse().sortBy("openedAt"),
+    [activeShopId]
+  ) || [];
   const activeShift = shifts.find((s) => s.status === "open");
 
   // Open Shift Form State
@@ -58,6 +62,7 @@ export const ShiftManager: React.FC<ShiftManagerProps> = ({ settings }) => {
     const floatKhr = parseFloat(openingFloatKhr) || 0;
 
     await db.shifts.add({
+      shopId: activeShopId,
       status: "open",
       openedAt: new Date(),
       openedBy: cashierName.trim() || "Cashier",

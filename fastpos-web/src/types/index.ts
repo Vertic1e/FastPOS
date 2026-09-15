@@ -15,8 +15,17 @@ export type SelectedModifier = {
   price: number;
 };
 
+export type Shop = {
+  id?: number;
+  name: string;
+  address: string;
+  phone: string;
+  isDefault?: boolean;
+};
+
 export type Category = {
   id?: number;
+  shopId?: number;
   name: string;
   color: string;
   icon: string;
@@ -26,6 +35,7 @@ export type Category = {
 
 export type MenuItem = {
   id?: number;
+  shopId?: number;
   categoryId: number | null;
   name: string;
   sku?: string;
@@ -35,6 +45,7 @@ export type MenuItem = {
   lowStockAt: number;
   trackStock: boolean;
   color: string;
+  image?: string; // Base64 data URL
   modifiers: ModifierGroup[];
   isActive: boolean;
   createdAt: Date;
@@ -45,6 +56,7 @@ export type CartLine = {
   menuItemId: number;
   name: string;
   color: string;
+  image?: string;
   basePrice: number;
   qty: number;
   modifiers: SelectedModifier[];
@@ -57,6 +69,7 @@ export type OrderStatus = "completed" | "refunded" | "cancelled";
 
 export type Order = {
   id?: number;
+  shopId?: number;
   orderNumber: number;
   status: OrderStatus;
   subtotal: number;
@@ -93,6 +106,7 @@ export type OrderItem = {
 
 export type HeldTicket = {
   id?: number;
+  shopId?: number;
   name: string;
   tableNumber?: string;
   itemCount: number;
@@ -105,6 +119,7 @@ export type ShiftStatus = "open" | "closed";
 
 export type Shift = {
   id?: number;
+  shopId?: number;
   status: ShiftStatus;
   openedAt: Date;
   closedAt?: Date;
@@ -148,6 +163,15 @@ export type StockMovement = {
   createdAt: Date;
 };
 
+export type UserRole = "owner" | "cashier";
+
+export type FontSizeScale = "normal" | "large" | "xlarge";
+
+export type AccessibilitySettings = {
+  gridCols: 2 | 3;
+  fontSize: FontSizeScale;
+};
+
 export type StoreSettings = {
   storeName: string;
   address: string;
@@ -163,4 +187,9 @@ export type StoreSettings = {
   khqrMerchantId: string;
   soundEnabled: boolean;
   accentColor: string;
+  // New features
+  ownerPin: string;
+  currentRole: UserRole;
+  activeShopId: number;
+  accessibility: AccessibilitySettings;
 };

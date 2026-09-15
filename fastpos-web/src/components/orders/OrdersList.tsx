@@ -20,7 +20,11 @@ interface OrdersListProps {
 }
 
 export const OrdersList: React.FC<OrdersListProps> = ({ settings }) => {
-  const orders = useLiveQuery(() => db.orders.orderBy("createdAt").reverse().toArray()) || [];
+  const activeShopId = settings.activeShopId || 1;
+  const orders = useLiveQuery(
+    () => db.orders.filter((o) => !o.shopId || o.shopId === activeShopId).reverse().sortBy("createdAt"),
+    [activeShopId]
+  ) || [];
 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "completed" | "refunded">("all");

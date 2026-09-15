@@ -22,9 +22,16 @@ interface SalesDashboardProps {
 }
 
 export const SalesDashboard: React.FC<SalesDashboardProps> = ({ settings }) => {
-  const orders = useLiveQuery(() => db.orders.toArray()) || [];
+  const activeShopId = settings.activeShopId || 1;
+  const orders = useLiveQuery(
+    () => db.orders.filter((o) => !o.shopId || o.shopId === activeShopId).toArray(),
+    [activeShopId]
+  ) || [];
   const orderItems = useLiveQuery(() => db.orderItems.toArray()) || [];
-  const menuItems = useLiveQuery(() => db.menuItems.toArray()) || [];
+  const menuItems = useLiveQuery(
+    () => db.menuItems.filter((m) => !m.shopId || m.shopId === activeShopId).toArray(),
+    [activeShopId]
+  ) || [];
 
   const [timeframe, setTimeframe] = useState<"today" | "yesterday" | "7d" | "30d" | "all">("today");
 
