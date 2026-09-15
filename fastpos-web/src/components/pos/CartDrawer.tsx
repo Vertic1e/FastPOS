@@ -9,6 +9,7 @@ import {
   ShoppingBag,
   X,
   Hash,
+  Zap,
 } from "lucide-react";
 import type { CartLine, StoreSettings } from "@/types";
 import { money, khr, round2 } from "@/lib/format";
@@ -20,6 +21,7 @@ interface CartDrawerProps {
   onClearCart: () => void;
   onHoldTicket: (tableName: string) => void;
   onOpenPayment: (data: { subtotal: number; tax: number; total: number; totalKhr: number; tableName: string }) => void;
+  onQuickCashCheckout?: (data: { subtotal: number; tax: number; total: number; totalKhr: number; tableName: string }) => void;
   settings: StoreSettings;
   isMobileDrawer?: boolean;
   onCloseMobileDrawer?: () => void;
@@ -32,6 +34,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onClearCart,
   onHoldTicket,
   onOpenPayment,
+  onQuickCashCheckout,
   settings,
   isMobileDrawer = false,
   onCloseMobileDrawer,
@@ -63,6 +66,22 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       totalKhr: grandTotalKhr,
       tableName: tableName.trim() || "Walk-in",
     });
+  };
+
+  const handleQuickCash = () => {
+    if (lines.length === 0) return;
+    const orderInfo = {
+      subtotal: subtotalAfterDiscount,
+      tax: taxAmount,
+      total: grandTotal,
+      totalKhr: grandTotalKhr,
+      tableName: tableName.trim() || "Walk-in",
+    };
+    if (onQuickCashCheckout) {
+      onQuickCashCheckout(orderInfo);
+    } else {
+      onOpenPayment(orderInfo);
+    }
   };
 
   const handleHold = () => {
@@ -189,29 +208,33 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 </div>
 
                 {/* Bottom row: Delete and Touch-friendly Quantity */}
-                <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-slate-850">
+                <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-slate-800">
                   <button
                     onClick={() => onRemoveLine(line.key)}
-                    className="text-[10px] text-slate-500 hover:text-rose-400 active:scale-90"
+                    className="p-1.5 -ml-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 active:scale-90 transition flex items-center gap-1 text-xs font-semibold"
+                    title="Remove item"
                   >
-                    Delete
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span className="text-[11px]">Remove</span>
                   </button>
 
-                  <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-750 rounded-xl p-0.5">
+                  <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700/80 rounded-xl p-0.5 shadow-inner">
                     <button
                       onClick={() => onUpdateQty(line.key, -1)}
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-300 bg-slate-800 active:bg-slate-700 active:scale-90"
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-200 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 active:scale-90 tap-tactile transition"
+                      aria-label="Decrease quantity"
                     >
-                      <Minus className="w-3.5 h-3.5" />
+                      <Minus className="w-3.5 h-3.5 stroke-[2.5]" />
                     </button>
-                    <span className="text-xs font-bold font-mono text-white w-5 text-center">
+                    <span className="text-xs sm:text-sm font-extrabold font-mono tabular-nums text-white w-6 text-center">
                       {line.qty}
                     </span>
                     <button
                       onClick={() => onUpdateQty(line.key, 1)}
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-300 bg-slate-800 active:bg-slate-700 active:scale-90"
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-200 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 active:scale-90 tap-tactile transition"
+                      aria-label="Increase quantity"
                     >
-                      <Plus className="w-3.5 h-3.5" />
+                      <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
                     </button>
                   </div>
                 </div>
@@ -249,11 +272,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     setDiscountPercent(rate);
                     if (rate === 0) setShowDiscountInput(false);
                   }}
-                  className={`flex-1 py-1 rounded-lg text-xs font-bold transition ${
-                    discountPercent === rate
+                  className={`flex-1 py-1 rounded-lg text-xs font-bold transition ${discountPercent === rate
                       ? "bg-orange-500 text-white"
                       : "bg-slate-800 text-slate-400"
-                  }`}
+                    }`}
                 >
                   {rate === 0 ? "Off" : `${rate}%`}
                 </button>
@@ -296,16 +318,27 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             </span>
           </div>
 
-          <button
-            onClick={handleCharge}
-            className="w-full py-3.5 px-4 rounded-2xl bg-orange-500 hover:bg-orange-600 active:scale-[0.97] text-white font-extrabold text-sm flex items-center justify-between shadow-lg shadow-orange-500/20 transition cursor-pointer"
-          >
-            <span>Proceed to Payment</span>
-            <div className="flex items-center gap-1 font-mono">
-              <span>{money(grandTotal, settings.currency)}</span>
-              <ArrowRight className="w-4 h-4" />
-            </div>
-          </button>
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <button
+              type="button"
+              onClick={handleQuickCash}
+              className="tap-tactile py-3.5 px-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.97] text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-600/25 transition cursor-pointer"
+              title="1-Tap Instant Exact Cash Sale"
+            >
+              <Zap className="w-4 h-4 text-amber-300 fill-amber-300 shrink-0" />
+              <span className="truncate">⚡ Quick Cash</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCharge}
+              className="tap-tactile py-3.5 px-3 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 active:scale-[0.97] text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-lg shadow-orange-500/25 transition cursor-pointer"
+              title="Payment Options (F2)"
+            >
+              <span className="truncate">Pay & More</span>
+              <ArrowRight className="w-4 h-4 shrink-0" />
+            </button>
+          </div>
         </div>
       )}
     </div>

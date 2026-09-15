@@ -46,6 +46,7 @@ export type MenuItem = {
   trackStock: boolean;
   color: string;
   image?: string; // Base64 data URL
+  isFavorite?: boolean;
   modifiers: ModifierGroup[];
   isActive: boolean;
   createdAt: Date;
@@ -192,4 +193,5 @@ export type StoreSettings = {
   currentRole: UserRole;
   activeShopId: number;
   accessibility: AccessibilitySettings;
+  themeMode?: "light" | "dark";
 };

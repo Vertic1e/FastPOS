@@ -56,7 +56,7 @@ export function App() {
       try {
         await seedInitialData();
         if (navigator.storage && navigator.storage.persist) {
-          navigator.storage.persist().catch(() => {});
+          navigator.storage.persist().catch(() => { });
         }
       } catch (err) {
         console.error("DB seed error:", err);
@@ -68,7 +68,7 @@ export function App() {
 
     // Register PWA service worker
     if ("serviceWorker" in navigator && window.location.protocol.startsWith("http")) {
-      navigator.serviceWorker.register("./sw.js").catch(() => {});
+      navigator.serviceWorker.register("./sw.js").catch(() => { });
     }
   }, []);
 
@@ -134,8 +134,8 @@ export function App() {
     settings.accessibility?.fontSize === "xlarge"
       ? "text-base font-medium"
       : settings.accessibility?.fontSize === "large"
-      ? "text-[14px]"
-      : "text-sm";
+        ? "text-[14px]"
+        : "text-sm";
 
   return (
     <div className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-orange-500 selection:text-white ${fontSizeWrapperClass}`}>

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   X,
   Banknote,
@@ -124,6 +124,17 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       changeDueKhr: paymentMethod === "cash" && changeKhr > 0 ? changeKhr : 0,
     });
   };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleSubmitPayment();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end sm:justify-center items-center p-0 sm:p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-150">
@@ -442,7 +453,12 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             }`}
           >
             <CheckCircle2 className="w-5 h-5" />
-            <span>Complete Checkout ({money(totalUsd, settings.currency)})</span>
+            <div className="flex items-center gap-2">
+              <span>Complete Checkout ({money(totalUsd, settings.currency)})</span>
+              <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono text-amber-200 bg-black/20 rounded">
+                Enter ↵
+              </kbd>
+            </div>
           </button>
         </div>
       </div>

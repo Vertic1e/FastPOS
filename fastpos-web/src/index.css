@@ -12,7 +12,12 @@
     -webkit-tap-highlight-color: transparent;
   }
 
-  h1, h2, h3, h4, h5, h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     font-family: 'Outfit', sans-serif;
   }
 }
@@ -22,13 +27,16 @@
   width: 6px;
   height: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: #0f172a;
 }
+
 ::-webkit-scrollbar-thumb {
   background: #334155;
   border-radius: 9999px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }
@@ -38,9 +46,12 @@
   body * {
     visibility: hidden;
   }
-  #thermal-receipt-print, #thermal-receipt-print * {
+
+  #thermal-receipt-print,
+  #thermal-receipt-print * {
     visibility: visible;
   }
+
   #thermal-receipt-print {
     position: absolute;
     left: 0;
@@ -65,6 +76,7 @@
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom, 16px);
 }
+
 .pt-safe {
   padding-top: env(safe-area-inset-top, 0px);
 }
@@ -75,6 +87,7 @@
     transform: translateY(100%);
     opacity: 0.9;
   }
+
   to {
     transform: translateY(0);
     opacity: 1;

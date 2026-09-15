@@ -10,6 +10,7 @@ interface ItemCardProps {
   enableDualCurrency: boolean;
   exchangeRate: number;
   accessibility?: AccessibilitySettings;
+  cartQty?: number;
 }
 
 export const ItemCard: React.FC<ItemCardProps> = ({
@@ -19,6 +20,7 @@ export const ItemCard: React.FC<ItemCardProps> = ({
   enableDualCurrency,
   exchangeRate,
   accessibility = { gridCols: 2, fontSize: "normal" },
+  cartQty = 0,
 }) => {
   const isOutOfStock = item.trackStock && item.stock <= 0;
   const isLowStock = item.trackStock && item.stock > 0 && item.stock <= item.lowStockAt;
@@ -30,15 +32,15 @@ export const ItemCard: React.FC<ItemCardProps> = ({
     accessibility.fontSize === "xlarge"
       ? "text-base font-extrabold"
       : accessibility.fontSize === "large"
-      ? "text-sm font-bold"
-      : "text-xs sm:text-sm font-bold";
+        ? "text-sm font-bold"
+        : "text-xs sm:text-sm font-bold";
 
   const priceSizeClass =
     accessibility.fontSize === "xlarge"
       ? "text-lg font-extrabold"
       : accessibility.fontSize === "large"
-      ? "text-base font-extrabold"
-      : "text-sm sm:text-base font-extrabold";
+        ? "text-base font-extrabold"
+        : "text-sm sm:text-base font-extrabold";
 
   return (
     <button
@@ -47,6 +49,8 @@ export const ItemCard: React.FC<ItemCardProps> = ({
       className={`relative flex flex-col justify-between rounded-2xl text-left transition-all select-none overflow-hidden ${
         isOutOfStock
           ? "bg-slate-900/30 border border-slate-850 opacity-40 cursor-not-allowed"
+          : cartQty > 0
+          ? "bg-slate-900/90 active:scale-[0.96] active:bg-slate-800 border border-teal-500/50 shadow-sm shadow-teal-500/10 cursor-pointer"
           : "bg-slate-900/90 active:scale-[0.96] active:bg-slate-800 border border-slate-800 shadow-sm cursor-pointer"
       }`}
       style={{
@@ -69,13 +73,20 @@ export const ItemCard: React.FC<ItemCardProps> = ({
       ) : null}
 
       <div className="p-3 flex-1 flex flex-col justify-between w-full">
-        {/* Top row: SKU or modifiers pill */}
+        {/* Top row: SKU, in-cart count, or modifiers pill */}
         <div className="flex items-center justify-between gap-1 w-full mb-1">
-          {item.sku ? (
-            <span className="text-[10px] font-mono text-slate-400 bg-slate-800/80 px-1.5 py-0.2 rounded">
-              {item.sku}
-            </span>
-          ) : <span />}
+          <div className="flex items-center gap-1">
+            {item.sku ? (
+              <span className="text-[10px] font-mono text-slate-400 bg-slate-800/80 px-1.5 py-0.2 rounded">
+                {item.sku}
+              </span>
+            ) : null}
+            {cartQty > 0 && (
+              <span className="text-[10px] font-extrabold text-teal-300 bg-teal-500/25 border border-teal-500/50 px-1.5 py-0.5 rounded-full tabular-nums">
+                ×{cartQty}
+              </span>
+            )}
+          </div>
 
           <div className="flex items-center gap-1">
             {hasModifiers && (

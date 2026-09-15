@@ -176,11 +176,10 @@ export const SalesDashboard: React.FC<SalesDashboardProps> = ({ settings }) => {
               <button
                 key={t.id}
                 onClick={() => setTimeframe(t.id as typeof timeframe)}
-                className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
-                  timeframe === t.id
+                className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${timeframe === t.id
                     ? "bg-orange-500 text-white shadow"
                     : "text-slate-400 hover:text-white"
-                }`}
+                  }`}
               >
                 {t.label}
               </button>
@@ -286,11 +285,10 @@ export const SalesDashboard: React.FC<SalesDashboardProps> = ({ settings }) => {
                     {item.count}
                   </span>
                   <div
-                    className={`w-full rounded-t-lg transition-all duration-300 ${
-                      item.count > 0
+                    className={`w-full rounded-t-lg transition-all duration-300 ${item.count > 0
                         ? "bg-gradient-to-t from-orange-600 to-amber-400 group-hover:brightness-125"
                         : "bg-slate-800/40"
-                    }`}
+                      }`}
                     style={{ height: `${heightPercent}%` }}
                   />
                   <span className="text-[9px] font-mono text-slate-500 truncate">{item.hour}</span>

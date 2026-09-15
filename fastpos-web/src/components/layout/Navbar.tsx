@@ -72,11 +72,11 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => {});
+      document.documentElement.requestFullscreen().catch(() => { });
       setIsFullscreen(true);
     } else {
       if (document.exitFullscreen) {
-        document.exitFullscreen().catch(() => {});
+        document.exitFullscreen().catch(() => { });
         setIsFullscreen(false);
       }
     }
@@ -105,11 +105,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Role Badge (Owner vs Cashier) */}
             <button
               onClick={onOpenRoleModal}
-              className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold border active:scale-95 transition cursor-pointer ${
-                isOwner
+              className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold border active:scale-95 transition cursor-pointer ${isOwner
                   ? "bg-orange-500/15 text-orange-300 border-orange-500/30"
                   : "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
-              }`}
+                }`}
               title="Click to switch role (Owner / Cashier)"
             >
               {isOwner ? (
@@ -136,11 +135,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Font scale toggle button */}
             <button
               onClick={onCycleFontSize}
-              className={`px-1.5 py-1 rounded-lg border text-[10px] font-bold uppercase transition active:scale-95 ${
-                fontSize !== "normal"
+              className={`px-1.5 py-1 rounded-lg border text-[10px] font-bold uppercase transition active:scale-95 ${fontSize !== "normal"
                   ? "bg-orange-500/20 text-orange-300 border-orange-500/40"
                   : "bg-slate-900 text-slate-400 border-slate-800"
-              }`}
+                }`}
               title={`Font Size: ${fontSize}`}
             >
               <Type className="w-3 h-3 inline mr-0.5" />
@@ -184,11 +182,10 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Register */}
           <button
             onClick={() => setActiveTab("pos")}
-            className={`flex flex-col items-center justify-center flex-1 py-1 transition-all ${
-              activeTab === "pos"
+            className={`flex flex-col items-center justify-center flex-1 py-1 transition-all ${activeTab === "pos"
                 ? "text-orange-400 font-bold scale-105"
                 : "text-slate-400 hover:text-slate-200"
-            }`}
+              }`}
           >
             <Store className={`w-5 h-5 mb-0.5 ${activeTab === "pos" ? "stroke-[2.5]" : "stroke-[1.8]"}`} />
             <span className="text-[10px]">Register</span>
@@ -197,11 +194,10 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Orders */}
           <button
             onClick={() => setActiveTab("orders")}
-            className={`relative flex flex-col items-center justify-center flex-1 py-1 transition-all ${
-              activeTab === "orders"
+            className={`relative flex flex-col items-center justify-center flex-1 py-1 transition-all ${activeTab === "orders"
                 ? "text-orange-400 font-bold scale-105"
                 : "text-slate-400 hover:text-slate-200"
-            }`}
+              }`}
           >
             <Receipt className={`w-5 h-5 mb-0.5 ${activeTab === "orders" ? "stroke-[2.5]" : "stroke-[1.8]"}`} />
             <span className="text-[10px]">Orders</span>
@@ -216,11 +212,10 @@ export const Navbar: React.FC<NavbarProps> = ({
           {isOwner && (
             <button
               onClick={() => setActiveTab("inventory")}
-              className={`flex flex-col items-center justify-center flex-1 py-1 transition-all ${
-                activeTab === "inventory"
+              className={`flex flex-col items-center justify-center flex-1 py-1 transition-all ${activeTab === "inventory"
                   ? "text-orange-400 font-bold scale-105"
                   : "text-slate-400 hover:text-slate-200"
-              }`}
+                }`}
             >
               <Package className={`w-5 h-5 mb-0.5 ${activeTab === "inventory" ? "stroke-[2.5]" : "stroke-[1.8]"}`} />
               <span className="text-[10px]">Items</span>
@@ -230,11 +225,10 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Shift */}
           <button
             onClick={() => setActiveTab("shifts")}
-            className={`flex flex-col items-center justify-center flex-1 py-1 transition-all ${
-              activeTab === "shifts"
+            className={`flex flex-col items-center justify-center flex-1 py-1 transition-all ${activeTab === "shifts"
                 ? "text-orange-400 font-bold scale-105"
                 : "text-slate-400 hover:text-slate-200"
-            }`}
+              }`}
           >
             <Layers className={`w-5 h-5 mb-0.5 ${activeTab === "shifts" ? "stroke-[2.5]" : "stroke-[1.8]"}`} />
             <span className="text-[10px]">Shift</span>
@@ -251,11 +245,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                   setIsMoreMenuOpen(!isMoreMenuOpen);
                 }
               }}
-              className={`flex flex-col items-center justify-center w-full py-1 transition-all ${
-                activeTab === "dashboard" || activeTab === "settings"
+              className={`flex flex-col items-center justify-center w-full py-1 transition-all ${activeTab === "dashboard" || activeTab === "settings"
                   ? "text-orange-400 font-bold scale-105"
                   : "text-slate-400 hover:text-slate-200"
-              }`}
+                }`}
             >
               <MoreHorizontal className={`w-5 h-5 mb-0.5 ${(activeTab === "dashboard" || activeTab === "settings") ? "stroke-[2.5]" : "stroke-[1.8]"}`} />
               <span className="text-[10px]">{isOwner ? "More" : "Admin"}</span>
@@ -274,9 +267,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                       setActiveTab("dashboard");
                       setIsMoreMenuOpen(false);
                     }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition ${
-                      activeTab === "dashboard" ? "bg-orange-500 text-white" : "text-slate-300 hover:bg-slate-800"
-                    }`}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition ${activeTab === "dashboard" ? "bg-orange-500 text-white" : "text-slate-300 hover:bg-slate-800"
+                      }`}
                   >
                     <BarChart3 className="w-4 h-4" />
                     <span>Analytics</span>
@@ -287,9 +279,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                       setActiveTab("settings");
                       setIsMoreMenuOpen(false);
                     }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition ${
-                      activeTab === "settings" ? "bg-orange-500 text-white" : "text-slate-300 hover:bg-slate-800"
-                    }`}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition ${activeTab === "settings" ? "bg-orange-500 text-white" : "text-slate-300 hover:bg-slate-800"
+                      }`}
                   >
                     <SettingsIcon className="w-4 h-4" />
                     <span>Settings</span>
