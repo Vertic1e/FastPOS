@@ -1,48 +1,31 @@
 import React, { useState, useMemo } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import {
-  BarChart3,
-  TrendingUp,
-  DollarSign,
-  ShoppingBag,
-  CreditCard,
-  QrCode,
-  Banknote,
-  Download,
-  Calendar,
-  Layers,
-  Award,
-} from "lucide-react";
+import { TrendingUp, ShoppingBag, CreditCard, QrCode, Banknote, Download, Award, Percent, RotateCcw, Split, BarChart3 } from "lucide-react";
 import { db } from "@/db";
-import type { Order, OrderItem, MenuItem, StoreSettings } from "@/types";
+import type { StoreSettings } from "@/types";
 import { money, khr, round2, downloadCsv } from "@/lib/format";
+import { cn } from "@/lib/cn";
+import { Page, PageHeader, StatCard, Card, CardHeader, CardBody, Button, Segmented, EmptyState } from "@/components/ui";
 
 interface SalesDashboardProps {
   settings: StoreSettings;
 }
 
+type Timeframe = "today" | "yesterday" | "7d" | "30d" | "all";
+
 export const SalesDashboard: React.FC<SalesDashboardProps> = ({ settings }) => {
   const activeShopId = settings.activeShopId || 1;
-  const orders = useLiveQuery(
-    () => db.orders.filter((o) => !o.shopId || o.shopId === activeShopId).toArray(),
-    [activeShopId]
-  ) || [];
+  const orders = useLiveQuery(() => db.orders.filter((o) => !o.shopId || o.shopId === activeShopId).toArray(), [activeShopId]) || [];
   const orderItems = useLiveQuery(() => db.orderItems.toArray()) || [];
-  const menuItems = useLiveQuery(
-    () => db.menuItems.filter((m) => !m.shopId || m.shopId === activeShopId).toArray(),
-    [activeShopId]
-  ) || [];
+  const menuItems = useLiveQuery(() => db.menuItems.filter((m) => !m.shopId || m.shopId === activeShopId).toArray(), [activeShopId]) || [];
+  const [timeframe, setTimeframe] = useState<Timeframe>("today");
 
-  const [timeframe, setTimeframe] = useState<"today" | "yesterday" | "7d" | "30d" | "all">("today");
-
-  // Filter orders by timeframe
   const filteredOrders = useMemo(() => {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const startOfYesterday = startOfToday - 24 * 3600 * 1000;
-    const sevenDaysAgo = startOfToday - 7 * 24 * 3600 * 1000;
-    const thirtyDaysAgo = startOfToday - 30 * 24 * 3600 * 1000;
-
+    const startOfYesterday = startOfToday - 86400000;
+    const sevenDaysAgo = startOfToday - 7 * 86400000;
+    const thirtyDaysAgo = startOfToday - 30 * 86400000;
     return orders.filter((o) => {
       const t = new Date(o.createdAt).getTime();
       if (timeframe === "today") return t >= startOfToday;
@@ -53,345 +36,181 @@ export const SalesDashboard: React.FC<SalesDashboardProps> = ({ settings }) => {
     });
   }, [orders, timeframe]);
 
-  // Order IDs in this timeframe
-  const orderIdSet = useMemo(() => new Set(filteredOrders.map((o) => o.id)), [filteredOrders]);
+  const completedOrders = useMemo(() => filteredOrders.filter((o) => o.status === "completed"), [filteredOrders]);
+  const refundedOrders = useMemo(() => filteredOrders.filter((o) => o.status === "refunded"), [filteredOrders]);
+  const completedIdSet = useMemo(() => new Set(completedOrders.map((o) => o.id)), [completedOrders]);
+  const soldItems = useMemo(() => orderItems.filter((it) => completedIdSet.has(it.orderId)), [orderItems, completedIdSet]);
 
-  // Filtered order items
-  const filteredItems = useMemo(
-    () => orderItems.filter((it) => orderIdSet.has(it.orderId)),
-    [orderItems, orderIdSet]
-  );
+  const grossSales = round2(completedOrders.reduce((s, o) => s + o.total, 0));
+  const refundsTotal = round2(refundedOrders.reduce((s, o) => s + o.total, 0));
+  const netSales = grossSales;
+  const orderCount = completedOrders.length;
+  const avgOrderValue = orderCount > 0 ? round2(netSales / orderCount) : 0;
+  const itemsSold = soldItems.reduce((s, it) => s + it.qty, 0);
 
-  // Financial calculations
-  const completedOrders = filteredOrders.filter((o) => o.status === "completed");
-  const refundedOrders = filteredOrders.filter((o) => o.status === "refunded");
-
-  const grossSales = round2(completedOrders.reduce((sum, o) => sum + o.total, 0));
-  const refundsTotal = round2(refundedOrders.reduce((sum, o) => sum + o.total, 0));
-  const netSales = round2(grossSales - refundsTotal);
-  const totalOrdersCount = completedOrders.length;
-  const avgOrderValue = totalOrdersCount > 0 ? round2(netSales / totalOrdersCount) : 0;
-
-  // Cost & Profit
   const totalCost = round2(
-    filteredItems.reduce((sum, it) => {
+    soldItems.reduce((sum, it) => {
       const prod = menuItems.find((p) => p.id === it.menuItemId);
-      const unitCost = prod ? prod.cost : 0;
-      return sum + unitCost * it.qty;
+      return sum + (prod ? prod.cost : 0) * it.qty;
     }, 0)
   );
-  const estimatedGrossProfit = round2(netSales - totalCost);
-  const profitMargin = netSales > 0 ? Math.round((estimatedGrossProfit / netSales) * 100) : 0;
+  const grossProfit = round2(netSales - totalCost);
+  const profitMargin = netSales > 0 ? Math.round((grossProfit / netSales) * 100) : 0;
 
-  // Payment Breakdown
-  const cashSales = round2(
-    completedOrders.filter((o) => o.paymentMethod === "cash").reduce((s, o) => s + o.total, 0)
-  );
-  const cardSales = round2(
-    completedOrders.filter((o) => o.paymentMethod === "card").reduce((s, o) => s + o.total, 0)
-  );
-  const qrSales = round2(
-    completedOrders.filter((o) => o.paymentMethod === "khqr").reduce((s, o) => s + o.total, 0)
-  );
+  const byMethod = (m: string) => round2(completedOrders.filter((o) => o.paymentMethod === m).reduce((s, o) => s + o.total, 0));
+  const methods = [
+    { key: "cash", label: "Cash", value: byMethod("cash"), icon: <Banknote className="h-4 w-4" />, color: "bg-emerald-500" },
+    { key: "khqr", label: "KHQR", value: byMethod("khqr"), icon: <QrCode className="h-4 w-4" />, color: "bg-rose-500" },
+    { key: "card", label: "Card", value: byMethod("card"), icon: <CreditCard className="h-4 w-4" />, color: "bg-blue-500" },
+    { key: "split", label: "Split", value: byMethod("split"), icon: <Split className="h-4 w-4" />, color: "bg-violet-500" },
+  ].filter((m) => m.value > 0 || m.key !== "split");
 
-  // Top Products
   const topProducts = useMemo(() => {
     const map = new Map<string, { name: string; qty: number; revenue: number }>();
-    filteredItems.forEach((it) => {
-      const existing = map.get(it.name) || { name: it.name, qty: 0, revenue: 0 };
-      map.set(it.name, {
-        name: it.name,
-        qty: existing.qty + it.qty,
-        revenue: round2(existing.revenue + it.lineTotal),
-      });
+    soldItems.forEach((it) => {
+      const prev = map.get(it.name) || { name: it.name, qty: 0, revenue: 0 };
+      map.set(it.name, { name: it.name, qty: prev.qty + it.qty, revenue: round2(prev.revenue + it.lineTotal) });
     });
     return Array.from(map.values())
-      .sort((a, b) => b.qty - a.qty)
-      .slice(0, 5);
-  }, [filteredItems]);
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 6);
+  }, [soldItems]);
+  const topRevenueMax = Math.max(...topProducts.map((p) => p.revenue), 1);
 
-  // Hourly distribution (7:00 to 22:00)
-  const hourlyData = useMemo(() => {
-    const hours = Array.from({ length: 15 }, (_, i) => i + 7); // 7am to 21pm
-    const counts = hours.map((h) => {
-      const count = completedOrders.filter((o) => {
-        const orderHour = new Date(o.createdAt).getHours();
-        return orderHour === h;
-      }).length;
-      return { hour: `${h > 12 ? h - 12 : h}${h >= 12 ? "pm" : "am"}`, count };
+  const hourly = useMemo(() => {
+    // Default window 06:00 – 22:00, widened automatically if sales fall outside it (late-night venues)
+    const soldHours = completedOrders.map((o) => new Date(o.createdAt).getHours());
+    const start = Math.min(6, ...soldHours);
+    const end = Math.max(22, ...soldHours);
+    const hours = Array.from({ length: end - start + 1 }, (_, i) => i + start);
+    const buckets = hours.map((h) => {
+      const list = completedOrders.filter((o) => new Date(o.createdAt).getHours() === h);
+      return { h, count: list.length, sales: round2(list.reduce((s, o) => s + o.total, 0)) };
     });
-    const maxCount = Math.max(...counts.map((c) => c.count), 1);
-    return { counts, maxCount };
+    const max = Math.max(...buckets.map((b) => b.sales), 0.01);
+    const peak = buckets.reduce((best, b) => (b.sales > best.sales ? b : best), buckets[0]);
+    return { buckets, max, peak };
   }, [completedOrders]);
 
-  const handleExportSalesReport = () => {
-    const headers = [
-      "OrderNumber",
-      "Date",
-      "Table",
-      "PaymentMethod",
-      "Subtotal",
-      "Tax",
-      "TotalUSD",
-      "TotalKHR",
-      "Status",
-    ];
-    const rows = filteredOrders.map((o) => [
-      o.orderNumber,
-      new Date(o.createdAt).toISOString(),
-      o.tableNumber || "Takeout",
-      o.paymentMethod,
-      o.subtotal,
-      o.tax,
-      o.total,
-      o.totalKhr,
-      o.status,
-    ]);
+  const exportCsv = () => {
+    const headers = ["OrderNumber", "Date", "Table", "PaymentMethod", "Subtotal", "Tax", "TotalUSD", "TotalKHR", "Status"];
+    const rows = filteredOrders.map((o) => [o.orderNumber, new Date(o.createdAt).toISOString(), o.tableNumber || "Walk-in", o.paymentMethod, o.subtotal, o.tax, o.total, o.totalKhr, o.status]);
     downloadCsv(`fastpos-sales-${timeframe}-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
   };
 
+  const fmtHour = (h: number) => `${h % 12 === 0 ? 12 : h % 12}${h >= 12 ? "p" : "a"}`;
+
   return (
-    <div className="flex-1 p-4 sm:p-6 max-w-7xl mx-auto w-full space-y-6">
-      {/* Top Header & Timeframe Filter */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-extrabold text-white tracking-tight">
-            Sales & Analytics Dashboard
-          </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Real-time financial performance, product velocity, peak hours, and profit margins
-          </p>
-        </div>
+    <Page>
+      <PageHeader
+        title="Analytics"
+        subtitle="Sales, margins and busiest hours for this branch."
+        actions={
+          <Button variant="secondary" size="md" onClick={exportCsv} leftIcon={<Download className="h-4 w-4" />} disabled={filteredOrders.length === 0}>
+            Export CSV
+          </Button>
+        }
+      />
 
-        <div className="flex items-center gap-2">
-          {/* Timeframe Filter */}
-          <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs font-semibold">
-            {[
-              { id: "today", label: "Today" },
-              { id: "yesterday", label: "Yesterday" },
-              { id: "7d", label: "7 Days" },
-              { id: "30d", label: "30 Days" },
-              { id: "all", label: "All Time" },
-            ].map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setTimeframe(t.id as typeof timeframe)}
-                className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${timeframe === t.id
-                    ? "bg-orange-500 text-white shadow"
-                    : "text-slate-400 hover:text-white"
-                  }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
+      <Segmented<Timeframe>
+        aria-label="Timeframe"
+        value={timeframe}
+        onChange={setTimeframe}
+        fullWidth
+        options={[
+          { value: "today", label: "Today" },
+          { value: "yesterday", label: "Yesterday", shortLabel: "Yest." },
+          { value: "7d", label: "7 days" },
+          { value: "30d", label: "30 days" },
+          { value: "all", label: "All time", shortLabel: "All" },
+        ]}
+        className="max-w-2xl"
+      />
 
-          <button
-            onClick={handleExportSalesReport}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 text-xs font-semibold transition"
-          >
-            <Download className="w-4 h-4" />
-            <span className="hidden sm:inline">Export CSV</span>
-          </button>
-        </div>
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
+        <StatCard label="Net sales" value={money(netSales, settings.currency)} hint={settings.enableDualCurrency ? khr(Math.round(netSales * settings.exchangeRate)) : undefined} tone="success" icon={<TrendingUp />} />
+        <StatCard label="Orders" value={orderCount} hint={`${itemsSold} items sold`} icon={<ShoppingBag />} />
+        <StatCard label="Avg. ticket" value={money(avgOrderValue, settings.currency)} icon={<BarChart3 />} tone="info" />
+        <StatCard label="Est. gross profit" value={money(grossProfit, settings.currency)} hint={`${profitMargin}% margin · cost ${money(totalCost, settings.currency)}`} icon={<Percent />} tone="brand" />
       </div>
 
-      {/* KPI Cards Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
-        <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-1 shadow-lg">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              Net Sales
-            </span>
-            <span className="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center">
-              <DollarSign className="w-4 h-4" />
-            </span>
-          </div>
-          <div className="text-2xl font-extrabold font-mono text-emerald-400">
-            {money(netSales, settings.currency)}
-          </div>
-          {settings.enableDualCurrency && (
-            <p className="text-xs font-mono text-amber-400">
-              {khr(netSales * settings.exchangeRate)}
-            </p>
-          )}
+      {refundedOrders.length > 0 && (
+        <div className="flex items-center gap-3 rounded-2xl border border-bad/30 bg-bad-soft/50 px-4 py-3 text-sm">
+          <RotateCcw className="h-4 w-4 shrink-0 text-bad" />
+          <span className="text-fg-muted">
+            <span className="font-bold text-bad">{refundedOrders.length} refunded</span> in this period · {money(refundsTotal, settings.currency)} returned to customers (not included in net sales).
+          </span>
         </div>
+      )}
 
-        <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-1 shadow-lg">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              Completed Orders
-            </span>
-            <span className="w-8 h-8 rounded-xl bg-orange-500/15 text-orange-400 flex items-center justify-center">
-              <ShoppingBag className="w-4 h-4" />
-            </span>
-          </div>
-          <div className="text-2xl font-extrabold font-mono text-white">
-            {totalOrdersCount}
-          </div>
-          <p className="text-xs text-slate-500">Avg ticket: {money(avgOrderValue, settings.currency)}</p>
-        </div>
-
-        <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-1 shadow-lg">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              Gross Profit
-            </span>
-            <span className="w-8 h-8 rounded-xl bg-blue-500/15 text-blue-400 flex items-center justify-center">
-              <TrendingUp className="w-4 h-4" />
-            </span>
-          </div>
-          <div className="text-2xl font-extrabold font-mono text-white">
-            {money(estimatedGrossProfit, settings.currency)}
-          </div>
-          <p className="text-xs text-blue-400 font-bold">{profitMargin}% margin</p>
-        </div>
-
-        <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-1 shadow-lg">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              Refunds Total
-            </span>
-            <span className="w-8 h-8 rounded-xl bg-rose-500/15 text-rose-400 flex items-center justify-center">
-              <TrendingUp className="w-4 h-4 rotate-180" />
-            </span>
-          </div>
-          <div className="text-2xl font-extrabold font-mono text-rose-400">
-            {money(refundsTotal, settings.currency)}
-          </div>
-          <p className="text-xs text-slate-500">{refundedOrders.length} orders refunded</p>
-        </div>
-      </div>
-
-      {/* Middle Grid: Hourly Peak Chart & Payment Breakdown */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Hourly Peaks Bar Chart */}
-        <div className="lg:col-span-2 p-5 rounded-3xl bg-slate-900 border border-slate-800 shadow-xl space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-extrabold text-base text-white">Hourly Sales Activity</h3>
-              <p className="text-xs text-slate-400">Customer volume distribution across the day</p>
+      {orderCount === 0 ? (
+        <EmptyState icon={<BarChart3 />} title="No sales in this period" description="Ring up a few orders and this page fills in automatically." className="rounded-3xl border border-line bg-surface py-16" />
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card>
+            <CardHeader icon={<Banknote />} title="Payment mix" subtitle="Share of net sales by method" />
+            <CardBody>
+            <div className="flex h-3 w-full overflow-hidden rounded-full bg-surface-3">
+              {methods.map((m) => (
+                <span key={m.key} className={m.color} style={{ width: `${netSales > 0 ? (m.value / netSales) * 100 : 0}%` }} title={`${m.label} ${money(m.value, settings.currency)}`} />
+              ))}
             </div>
-            <BarChart3 className="w-5 h-5 text-orange-400" />
-          </div>
-
-          <div className="h-44 flex items-end justify-between gap-1.5 pt-4 pb-2 border-b border-slate-800">
-            {hourlyData.counts.map((item, idx) => {
-              const heightPercent =
-                item.count > 0 ? Math.max(12, Math.round((item.count / hourlyData.maxCount) * 100)) : 4;
-              return (
-                <div key={idx} className="flex-1 flex flex-col items-center gap-1 h-full justify-end group">
-                  <span className="text-[10px] font-mono text-slate-400 opacity-0 group-hover:opacity-100 transition">
-                    {item.count}
+            <ul className="mt-3 grid grid-cols-1 gap-2 min-[420px]:grid-cols-3">
+              {methods.map((m) => (
+                <li key={m.key} className="flex items-center gap-2 rounded-xl bg-surface-2/60 px-3 py-2">
+                  <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white", m.color)}>{m.icon}</span>
+                  <span className="min-w-0">
+                    <span className="block text-xs text-fg-muted">
+                      {m.label} · {netSales > 0 ? Math.round((m.value / netSales) * 100) : 0}%
+                    </span>
+                    <span className="num block truncate text-sm font-bold text-fg">{money(m.value, settings.currency)}</span>
                   </span>
-                  <div
-                    className={`w-full rounded-t-lg transition-all duration-300 ${item.count > 0
-                        ? "bg-gradient-to-t from-orange-600 to-amber-400 group-hover:brightness-125"
-                        : "bg-slate-800/40"
-                      }`}
-                    style={{ height: `${heightPercent}%` }}
-                  />
-                  <span className="text-[9px] font-mono text-slate-500 truncate">{item.hour}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+                </li>
+              ))}
+            </ul>
+            </CardBody>
+          </Card>
 
-        {/* Payment Methods Share */}
-        <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 shadow-xl space-y-4">
-          <div>
-            <h3 className="font-extrabold text-base text-white">Payment Methods</h3>
-            <p className="text-xs text-slate-400">Tender breakdown for this period</p>
-          </div>
-
-          <div className="space-y-3 pt-1">
-            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center">
-                  <Banknote className="w-4 h-4" />
-                </div>
-                <div>
-                  <span className="font-bold text-xs text-slate-200">Cash USD & KHR</span>
-                  <p className="text-[10px] text-slate-500">Physical drawer cash</p>
-                </div>
-              </div>
-              <span className="font-mono font-bold text-white text-sm">
-                {money(cashSales, settings.currency)}
-              </span>
-            </div>
-
-            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-rose-500/20 text-rose-300 flex items-center justify-center">
-                  <QrCode className="w-4 h-4" />
-                </div>
-                <div>
-                  <span className="font-bold text-xs text-slate-200">KHQR / Bakong</span>
-                  <p className="text-[10px] text-slate-500">Bank QR transfers</p>
-                </div>
-              </div>
-              <span className="font-mono font-bold text-white text-sm">
-                {money(qrSales, settings.currency)}
-              </span>
-            </div>
-
-            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-300 flex items-center justify-center">
-                  <CreditCard className="w-4 h-4" />
-                </div>
-                <div>
-                  <span className="font-bold text-xs text-slate-200">Card Terminal</span>
-                  <p className="text-[10px] text-slate-500">Visa / Mastercard / UnionPay</p>
-                </div>
-              </div>
-              <span className="font-mono font-bold text-white text-sm">
-                {money(cardSales, settings.currency)}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Top 5 Best-Selling Products */}
-      <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 shadow-xl space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Award className="w-5 h-5 text-amber-400" />
-            <h3 className="font-extrabold text-base text-white">Top 5 Best-Selling Items</h3>
-          </div>
-          <span className="text-xs text-slate-400">Ranked by volume sold</span>
-        </div>
-
-        <div className="space-y-2">
-          {topProducts.length === 0 ? (
-            <p className="text-xs text-slate-500 py-4 text-center">
-              No product sales recorded in this timeframe
-            </p>
-          ) : (
-            topProducts.map((prod, idx) => (
-              <div
-                key={prod.name}
-                className="flex items-center justify-between p-3 rounded-2xl bg-slate-950/70 border border-slate-800"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="w-6 h-6 rounded-full bg-slate-800 text-slate-300 font-extrabold text-xs flex items-center justify-center font-mono">
-                    #{idx + 1}
+          <Card>
+            <CardHeader icon={<Award />} title="Top sellers" subtitle="By revenue" />
+            <CardBody>
+            <ol className="flex flex-col gap-2">
+              {topProducts.map((p, i) => (
+                <li key={p.name} className="relative overflow-hidden rounded-xl bg-surface-2/60 px-3 py-2">
+                  <span className="absolute inset-y-0 left-0 bg-brand/15" style={{ width: `${(p.revenue / topRevenueMax) * 100}%` }} aria-hidden />
+                  <span className="relative flex items-center gap-3">
+                    <span className="num flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface text-xs font-extrabold text-fg-muted">{i + 1}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-fg">{p.name}</span>
+                      <span className="num block text-xs text-fg-muted">{p.qty} sold</span>
+                    </span>
+                    <span className="num text-sm font-bold text-fg">{money(p.revenue, settings.currency)}</span>
                   </span>
-                  <span className="font-bold text-xs text-slate-200">{prod.name}</span>
+                </li>
+              ))}
+            </ol>
+            </CardBody>
+          </Card>
+
+          <Card className="lg:col-span-2">
+            <CardHeader
+              icon={<BarChart3 />}
+              title="Sales by hour"
+              subtitle={hourly.peak.sales > 0 ? `Busiest hour: ${fmtHour(hourly.peak.h)} · ${money(hourly.peak.sales, settings.currency)} from ${hourly.peak.count} orders` : "Hourly distribution"}
+            />
+            <CardBody>
+            <div className="flex h-36 items-end gap-1 sm:gap-1.5" role="img" aria-label="Bar chart of sales by hour">
+              {hourly.buckets.map((b) => (
+                <div key={b.h} className="group flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1" title={`${fmtHour(b.h)}: ${money(b.sales, settings.currency)} · ${b.count} orders`}>
+                  <span className={cn("w-full rounded-t-md transition-all", b.sales > 0 ? (b.h === hourly.peak.h ? "bg-brand" : "bg-brand/50 group-hover:bg-brand/80") : "bg-surface-3")} style={{ height: `${Math.max(b.sales > 0 ? 6 : 2, (b.sales / hourly.max) * 100)}%` }} />
+                  <span className={cn("num text-[0.625rem] text-fg-subtle", b.h % 2 === 1 && "invisible min-[560px]:visible")}>{fmtHour(b.h)}</span>
                 </div>
-                <div className="flex items-center gap-4 text-xs">
-                  <span className="text-slate-400 font-semibold">{prod.qty} units sold</span>
-                  <span className="font-mono font-bold text-emerald-400">
-                    {money(prod.revenue, settings.currency)}
-                  </span>
-                </div>
-              </div>
-            ))
-          )}
+              ))}
+            </div>
+            </CardBody>
+          </Card>
         </div>
-      </div>
-    </div>
+      )}
+    </Page>
   );
 };

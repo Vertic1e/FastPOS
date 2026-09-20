@@ -1,412 +1,247 @@
 import React, { useState, useMemo } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import {
-  Package,
-  Plus,
-  Search,
-  AlertTriangle,
-  Layers,
-  Edit2,
-  Trash2,
-  Download,
-  PlusCircle,
-  MinusCircle,
-} from "lucide-react";
+import { Package, Plus, Search, AlertTriangle, Layers, Pencil, Trash2, Download, Minus, Star, EyeOff } from "lucide-react";
 import { db } from "@/db";
-import type { MenuItem, Category, StoreSettings } from "@/types";
+import type { MenuItem, StoreSettings } from "@/types";
 import { ItemEditModal } from "./ItemEditModal";
 import { CategoryEditModal } from "./CategoryEditModal";
 import { money, downloadCsv } from "@/lib/format";
+import { cn } from "@/lib/cn";
+import { CategoryIcon } from "@/components/common/CategoryIcon";
+import { Page, PageHeader, Button, Input, EmptyState, Badge, useConfirm, useToast } from "@/components/ui";
 
 interface InventoryManagerProps {
   settings: StoreSettings;
 }
 
+type StockFilter = "all" | "low";
+
 export const InventoryManager: React.FC<InventoryManagerProps> = ({ settings }) => {
   const activeShopId = settings.activeShopId || 1;
-  const items = useLiveQuery(
-    () => db.menuItems.filter((i) => !i.shopId || i.shopId === activeShopId).toArray(),
-    [activeShopId]
-  ) || [];
-  const categories = useLiveQuery(
-    () => db.categories.filter((c) => !c.shopId || c.shopId === activeShopId).toArray(),
-    [activeShopId]
-  ) || [];
+  const confirm = useConfirm();
+  const toast = useToast();
+  const items = useLiveQuery(() => db.menuItems.filter((i) => !i.shopId || i.shopId === activeShopId).toArray(), [activeShopId]) || [];
+  const categories = useLiveQuery(() => db.categories.filter((c) => !c.shopId || c.shopId === activeShopId).sortBy("sortOrder"), [activeShopId]) || [];
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCatId, setSelectedCatId] = useState<number | null>(null);
+  const [stockFilter, setStockFilter] = useState<StockFilter>("all");
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [isCreatingItem, setIsCreatingItem] = useState(false);
   const [isManagingCats, setIsManagingCats] = useState(false);
 
-  // Filter items
+  const lowStockItems = useMemo(() => items.filter((i) => i.trackStock && i.stock <= i.lowStockAt), [items]);
+
   const filteredItems = useMemo(() => {
-    return items.filter((i) => {
-      const matchCat = selectedCatId === null || i.categoryId === selectedCatId;
-      const matchSearch =
-        searchQuery.trim() === "" ||
-        i.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (i.sku && i.sku.toLowerCase().includes(searchQuery.toLowerCase()));
-      return matchCat && matchSearch;
-    });
-  }, [items, selectedCatId, searchQuery]);
+    const q = searchQuery.trim().toLowerCase();
+    return items
+      .filter((i) => {
+        if (stockFilter === "low" && !(i.trackStock && i.stock <= i.lowStockAt)) return false;
+        const matchCat = selectedCatId === null || i.categoryId === selectedCatId;
+        const matchSearch = q === "" || i.name.toLowerCase().includes(q) || (i.sku ? i.sku.toLowerCase().includes(q) : false);
+        return matchCat && matchSearch;
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [items, selectedCatId, searchQuery, stockFilter]);
 
-  // Low stock calculation
-  const lowStockItems = items.filter((i) => i.trackStock && i.stock <= i.lowStockAt);
-
-  // Quick stock adjust
-  const handleAdjustStock = async (item: MenuItem, delta: number) => {
+  const adjustStock = async (item: MenuItem, delta: number) => {
     const newStock = Math.max(0, item.stock + delta);
+    if (newStock === item.stock) return;
     await db.menuItems.update(item.id!, { stock: newStock });
-    await db.stockMovements.add({
-      itemId: item.id!,
-      delta,
-      reason: delta > 0 ? "restock" : "adjustment",
-      note: "Manual quick adjustment",
-      createdAt: new Date(),
+    await db.stockMovements.add({ itemId: item.id!, delta: newStock - item.stock, reason: delta > 0 ? "restock" : "adjustment", note: "Manual quick adjustment", createdAt: new Date() });
+  };
+
+  const toggleFavorite = async (item: MenuItem) => {
+    await db.menuItems.update(item.id!, { isFavorite: !item.isFavorite });
+  };
+
+  const deleteItem = async (item: MenuItem) => {
+    const ok = await confirm({
+      title: `Delete “${item.name}”?`,
+      message: "Past orders keep their line items, but the product is removed from the catalog.",
+      confirmLabel: "Delete",
+      tone: "danger",
     });
+    if (!ok) return;
+    await db.menuItems.delete(item.id!);
+    toast({ title: "Item deleted", description: item.name, tone: "info" });
   };
 
-  const handleDeleteItem = async (item: MenuItem) => {
-    if (confirm(`Are you sure you want to delete "${item.name}"?`)) {
-      await db.menuItems.delete(item.id!);
-    }
-  };
-
-  const handleExportCsv = () => {
+  const exportCsv = () => {
     const headers = ["SKU", "Name", "Category", "Price", "Cost", "Stock", "LowStockThreshold"];
     const rows = items.map((i) => {
       const cat = categories.find((c) => c.id === i.categoryId);
-      return [
-        i.sku || "",
-        i.name,
-        cat ? cat.name : "Uncategorized",
-        i.price,
-        i.cost,
-        i.trackStock ? i.stock : "N/A",
-        i.trackStock ? i.lowStockAt : "N/A",
-      ];
+      return [i.sku || "", i.name, cat ? cat.name : "Uncategorized", i.price, i.cost, i.trackStock ? i.stock : "N/A", i.trackStock ? i.lowStockAt : "N/A"];
     });
     downloadCsv(`fastpos-inventory-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
   };
 
+  const chip = "press flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-sm font-semibold";
+  const chipOn = "border-brand bg-brand text-white";
+  const chipOff = "border-line bg-surface text-fg-muted hover:border-line-strong hover:text-fg";
+
   return (
-    <div className="flex-1 p-4 sm:p-6 max-w-7xl mx-auto w-full space-y-5">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-extrabold text-white tracking-tight">
-            Inventory & Catalog
-          </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Manage menu items, recipes, stock levels, categories, and low-inventory warnings
-          </p>
-        </div>
+    <Page>
+      <PageHeader
+        title="Items & stock"
+        subtitle={`${items.length} products · ${categories.length} categories`}
+        actions={
+          <>
+            <Button variant="secondary" size="md" onClick={exportCsv} leftIcon={<Download className="h-4 w-4" />} className="hidden sm:inline-flex">
+              CSV
+            </Button>
+            <Button variant="secondary" size="md" onClick={() => setIsManagingCats(true)} leftIcon={<Layers className="h-4 w-4" />}>
+              Categories
+            </Button>
+            <Button variant="primary" size="md" onClick={() => setIsCreatingItem(true)} leftIcon={<Plus className="h-4 w-4" />}>
+              Add item
+            </Button>
+          </>
+        }
+      />
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleExportCsv}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-slate-300 border border-slate-800 transition"
-          >
-            <Download className="w-4 h-4" />
-            <span>Export CSV</span>
-          </button>
-          <button
-            onClick={() => setIsManagingCats(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-slate-300 border border-slate-800 transition"
-          >
-            <Layers className="w-4 h-4 text-orange-400" />
-            <span>Categories ({categories.length})</span>
-          </button>
-          <button
-            onClick={() => setIsCreatingItem(true)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs shadow-lg shadow-orange-500/20 active:scale-95 transition cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Item</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Low Stock Warning Banner */}
       {lowStockItems.length > 0 && (
-        <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center shrink-0">
-              <AlertTriangle className="w-5 h-5" />
-            </div>
-            <div>
-              <h4 className="font-extrabold text-amber-300 text-sm">
-                {lowStockItems.length} items need restock!
-              </h4>
-              <p className="text-slate-400 mt-0.5">
-                {lowStockItems.map((i) => i.name).slice(0, 3).join(", ")}
-                {lowStockItems.length > 3 ? "..." : ""} are at or below their alert threshold.
-              </p>
-            </div>
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={() => setStockFilter((f) => (f === "low" ? "all" : "low"))}
+          className={cn(
+            "press flex w-full items-center gap-3 rounded-2xl border p-3 text-left",
+            stockFilter === "low" ? "border-warn bg-warn-soft" : "border-warn/40 bg-warn-soft/50 hover:border-warn"
+          )}
+          aria-pressed={stockFilter === "low"}
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-warn/20 text-warn">
+            <AlertTriangle className="h-5 w-5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-bold text-warn">
+              {lowStockItems.length} {lowStockItems.length === 1 ? "item needs" : "items need"} restocking
+            </span>
+            <span className="block truncate text-xs text-fg-muted">{lowStockItems.map((i) => i.name).join(", ")}</span>
+          </span>
+          <span className="shrink-0 text-xs font-bold text-warn">{stockFilter === "low" ? "Show all" : "Show only these"}</span>
+        </button>
       )}
 
-      {/* Search & Category Filter */}
-      <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-slate-900/60 p-3 rounded-2xl border border-slate-800">
-        <div className="relative w-full sm:w-80">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search items by name or SKU..."
-            className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-orange-500"
-          />
-        </div>
-
-        <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
-          <button
-            onClick={() => setSelectedCatId(null)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition ${
-              selectedCatId === null
-                ? "bg-orange-500 text-white shadow"
-                : "bg-slate-950 text-slate-400 hover:text-white"
-            }`}
-          >
-            All ({items.length})
+      <div className="flex flex-col gap-2">
+        <Input type="search" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search by name or SKU" leftIcon={<Search />} aria-label="Search items" className="[&::-webkit-search-cancel-button]:hidden" />
+        <div className="scroll-x -mx-3 flex items-center gap-1.5 px-3 sm:-mx-4 sm:px-4" role="tablist" aria-label="Filter by category">
+          <button type="button" role="tab" aria-selected={selectedCatId === null} onClick={() => setSelectedCatId(null)} className={cn(chip, selectedCatId === null ? chipOn : chipOff)}>
+            <Layers className="h-4 w-4" />
+            All
           </button>
-          {categories.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setSelectedCatId(c.id!)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition ${
-                selectedCatId === c.id
-                  ? "bg-orange-500 text-white shadow"
-                  : "bg-slate-950 text-slate-400 hover:text-white"
-              }`}
-            >
-              {c.name}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Items View */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
-        {/* Mobile View (< sm) */}
-        <div className="block sm:hidden divide-y divide-slate-850">
-          {filteredItems.map((item) => {
-            const cat = categories.find((c) => c.id === item.categoryId);
-            const isOut = item.trackStock && item.stock <= 0;
-            const isLow = item.trackStock && item.stock > 0 && item.stock <= item.lowStockAt;
-
+          {categories.map((c) => {
+            const on = selectedCatId === c.id;
             return (
-              <div key={item.id} className="p-3.5 space-y-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5"
-                      style={{ backgroundColor: item.color || "#f97316" }}
-                    />
-                    <div>
-                      <h4 className="font-bold text-xs text-slate-100">{item.name}</h4>
-                      <p className="text-[10px] text-slate-400">
-                        {cat?.name || "Uncategorized"} {item.sku && `• SKU: ${item.sku}`}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="text-right">
-                    <span className="font-mono font-bold text-xs text-emerald-400">
-                      {money(item.price, settings.currency)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Bottom row: Stock control & edit */}
-                <div className="flex items-center justify-between pt-1 border-t border-slate-850 text-xs">
-                  {item.trackStock ? (
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`font-mono text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                          isOut
-                            ? "bg-rose-500/20 text-rose-300"
-                            : isLow
-                            ? "bg-amber-500/20 text-amber-300"
-                            : "bg-slate-800 text-slate-300"
-                        }`}
-                      >
-                        {item.stock} left
-                      </span>
-
-                      {/* Quick Adjust */}
-                      <div className="flex items-center gap-1 bg-slate-950 px-1 py-0.5 rounded-lg border border-slate-800">
-                        <button
-                          onClick={() => handleAdjustStock(item, -1)}
-                          className="w-6 h-6 rounded flex items-center justify-center text-slate-400 hover:text-white bg-slate-900 active:scale-90"
-                        >
-                          -
-                        </button>
-                        <button
-                          onClick={() => handleAdjustStock(item, 1)}
-                          className="w-6 h-6 rounded flex items-center justify-center text-slate-400 hover:text-white bg-slate-900 active:scale-90"
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <span className="text-slate-500 text-[10px]">Untracked stock</span>
-                  )}
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setEditingItem(item)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-orange-400 bg-slate-800"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteItem(item)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 bg-slate-800"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <button key={c.id} type="button" role="tab" aria-selected={on} onClick={() => setSelectedCatId(on ? null : c.id!)} className={cn(chip, on ? chipOn : chipOff)} style={on ? { backgroundColor: c.color, borderColor: c.color } : undefined}>
+                <CategoryIcon name={c.icon} className="h-4 w-4" />
+                {c.name}
+                <span className="num opacity-70">{items.filter((i) => i.categoryId === c.id).length}</span>
+              </button>
             );
           })}
         </div>
-
-        {/* Desktop / Tablet View (sm+) */}
-        <div className="hidden sm:block overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-950/60 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
-              <tr>
-                <th className="py-3.5 px-4">Item Name</th>
-                <th className="py-3.5 px-4">Category</th>
-                <th className="py-3.5 px-4">SKU</th>
-                <th className="py-3.5 px-4">Price</th>
-                <th className="py-3.5 px-4">Cost</th>
-                <th className="py-3.5 px-4">Stock Level</th>
-                <th className="py-3.5 px-4 text-center">Quick Adjust</th>
-                <th className="py-3.5 px-4 text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/60 font-medium">
-              {filteredItems.map((item) => {
-                const cat = categories.find((c) => c.id === item.categoryId);
-                const isOut = item.trackStock && item.stock <= 0;
-                const isLow = item.trackStock && item.stock > 0 && item.stock <= item.lowStockAt;
-
-                return (
-                  <tr key={item.id} className="hover:bg-slate-850/60 transition">
-                    <td className="py-3.5 px-4 font-bold text-slate-100 flex items-center gap-2">
-                      <span
-                        className="w-2.5 h-2.5 rounded-full shrink-0"
-                        style={{ backgroundColor: item.color || "#f97316" }}
-                      />
-                      <span>{item.name}</span>
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-400">
-                      {cat?.name || <span className="text-slate-600">Uncategorized</span>}
-                    </td>
-                    <td className="py-3.5 px-4 font-mono text-slate-400">{item.sku || "—"}</td>
-                    <td className="py-3.5 px-4 font-mono font-bold text-emerald-400">
-                      {money(item.price, settings.currency)}
-                    </td>
-                    <td className="py-3.5 px-4 font-mono text-slate-400">
-                      {money(item.cost, settings.currency)}
-                    </td>
-                    <td className="py-3.5 px-4">
-                      {item.trackStock ? (
-                        <div className="flex items-center gap-1.5">
-                          <span
-                            className={`font-mono font-bold px-2 py-0.5 rounded-md ${
-                              isOut
-                                ? "bg-rose-500/20 text-rose-300"
-                                : isLow
-                                ? "bg-amber-500/20 text-amber-300"
-                                : "bg-slate-800 text-slate-300"
-                            }`}
-                          >
-                            {item.stock} in stock
-                          </span>
-                          {isLow && <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />}
-                        </div>
-                      ) : (
-                        <span className="text-slate-500 text-[11px]">Untracked</span>
-                      )}
-                    </td>
-                    <td className="py-3.5 px-4 text-center">
-                      {item.trackStock ? (
-                        <div className="inline-flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
-                          <button
-                            onClick={() => handleAdjustStock(item, -1)}
-                            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-850 active:scale-90 transition"
-                            title="-1 Stock"
-                          >
-                            <MinusCircle className="w-4 h-4" />
-                          </button>
-                          <span className="font-mono text-xs font-bold text-slate-300 w-7 text-center">
-                            {item.stock}
-                          </span>
-                          <button
-                            onClick={() => handleAdjustStock(item, 1)}
-                            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-850 active:scale-90 transition"
-                            title="+1 Stock"
-                          >
-                            <PlusCircle className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-slate-600">—</span>
-                      )}
-                    </td>
-                    <td className="py-3.5 px-4 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => setEditingItem(item)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-orange-400 hover:bg-slate-800 transition"
-                          title="Edit Item"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteItem(item)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition"
-                          title="Delete Item"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
       </div>
 
-      {/* Modals */}
-      {(isCreatingItem || editingItem) && (
-        <ItemEditModal
-          item={editingItem}
-          categories={categories}
-          onClose={() => {
-            setIsCreatingItem(false);
-            setEditingItem(null);
-          }}
-          settings={settings}
+      {filteredItems.length === 0 ? (
+        <EmptyState
+          icon={<Package />}
+          title={items.length === 0 ? "No items yet" : "Nothing matches"}
+          description={items.length === 0 ? "Add your first product to start selling." : "Try another search or category."}
+          action={
+            items.length === 0 ? (
+              <Button variant="primary" onClick={() => setIsCreatingItem(true)} leftIcon={<Plus className="h-4 w-4" />}>
+                Add item
+              </Button>
+            ) : undefined
+          }
+          className="rounded-3xl border border-line bg-surface py-16"
         />
+      ) : (
+        <ul className="grid grid-cols-1 gap-2 md:grid-cols-2 2xl:grid-cols-3">
+          {filteredItems.map((item) => {
+            const cat = categories.find((c) => c.id === item.categoryId);
+            const isLow = item.trackStock && item.stock <= item.lowStockAt;
+            const isOut = item.trackStock && item.stock <= 0;
+            return (
+              <li key={item.id} className={cn("flex flex-col gap-2 rounded-2xl border bg-surface p-3", isOut ? "border-bad/40" : isLow ? "border-warn/40" : "border-line")}>
+                <div className="flex items-start gap-3">
+                  <button type="button" onClick={() => setEditingItem(item)} className="press flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl text-lg font-extrabold text-white" style={{ backgroundColor: item.color }} aria-label={`Edit ${item.name}`}>
+                    {item.image ? <img src={item.image} alt="" className="h-full w-full object-cover" loading="lazy" /> : item.name.charAt(0)}
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start gap-2">
+                      <button type="button" onClick={() => setEditingItem(item)} className="min-w-0 flex-1 text-left">
+                        <span className="block truncate text-sm font-bold text-fg">{item.name}</span>
+                        <span className="block truncate text-xs text-fg-muted">
+                          {cat ? cat.name : "Uncategorized"}
+                          {item.sku && <span className="num"> · {item.sku}</span>}
+                          {item.modifiers.length > 0 && ` · ${item.modifiers.length} option ${item.modifiers.length === 1 ? "group" : "groups"}`}
+                        </span>
+                      </button>
+                      <button type="button" onClick={() => toggleFavorite(item)} aria-pressed={!!item.isFavorite} aria-label={item.isFavorite ? "Remove from favorites" : "Add to favorites"} className={cn("press -mr-1 -mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", item.isFavorite ? "text-amber-400" : "text-fg-subtle hover:text-fg")}>
+                        <Star className={cn("h-4.5 w-4.5", item.isFavorite && "fill-current")} />
+                      </button>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="num text-base font-extrabold text-ok">{money(item.price, settings.currency)}</span>
+                      <span className="num text-xs text-fg-subtle">cost {money(item.cost, settings.currency)}</span>
+                      {!item.isActive && (
+                        <Badge tone="neutral">
+                          <EyeOff className="mr-1 h-3 w-3" />
+                          Hidden
+                        </Badge>
+                      )}
+                      {isOut ? <Badge tone="danger">Sold out</Badge> : isLow ? <Badge tone="warning">Low stock</Badge> : null}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-2 border-t border-line pt-2">
+                  {item.trackStock ? (
+                    <div className="flex items-center gap-1">
+                      <Button variant="secondary" size="sm" iconOnly aria-label={`Decrease stock of ${item.name}`} onClick={() => adjustStock(item, -1)} disabled={item.stock <= 0}>
+                        <Minus className="h-4 w-4" />
+                      </Button>
+                      <span className={cn("num min-w-[3.5rem] text-center text-sm font-bold", isOut ? "text-bad" : isLow ? "text-warn" : "text-fg")}>
+                        {item.stock} <span className="text-xs font-medium text-fg-subtle">left</span>
+                      </span>
+                      <Button variant="secondary" size="sm" iconOnly aria-label={`Increase stock of ${item.name}`} onClick={() => adjustStock(item, 1)}>
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => adjustStock(item, 10)} className="px-2 text-xs">
+                        +10
+                      </Button>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-fg-subtle">Stock not tracked</span>
+                  )}
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="sm" iconOnly aria-label={`Edit ${item.name}`} onClick={() => setEditingItem(item)}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" iconOnly aria-label={`Delete ${item.name}`} className="hover:bg-bad-soft hover:text-bad" onClick={() => deleteItem(item)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       )}
 
-      {isManagingCats && (
-        <CategoryEditModal
-          categories={categories}
-          onClose={() => setIsManagingCats(false)}
-          settings={settings}
-        />
-      )}
-    </div>
+      <ItemEditModal
+        open={isCreatingItem || !!editingItem}
+        item={editingItem}
+        categories={categories}
+        onClose={() => {
+          setIsCreatingItem(false);
+          setEditingItem(null);
+        }}
+        settings={settings}
+      />
+      <CategoryEditModal open={isManagingCats} categories={categories} onClose={() => setIsManagingCats(false)} settings={settings} />
+    </Page>
   );
 };

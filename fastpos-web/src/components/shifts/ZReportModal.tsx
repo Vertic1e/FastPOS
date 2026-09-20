@@ -1,184 +1,136 @@
 import React from "react";
-import { X, Printer, CheckCircle2 } from "lucide-react";
-import type { Shift, StoreSettings } from "@/types";
+import { createPortal } from "react-dom";
+import { useLiveQuery } from "dexie-react-hooks";
+import { Printer, FileText } from "lucide-react";
+import { db } from "@/db";
+import type { Shift, StoreSettings, CashMovement } from "@/types";
 import { money, khr, formatDateTime, round2 } from "@/lib/format";
+import { Modal, Button } from "@/components/ui";
 
 interface ZReportModalProps {
-  shift: Shift;
+  shift: Shift | null;
   onClose: () => void;
   settings: StoreSettings;
 }
 
-export const ZReportModal: React.FC<ZReportModalProps> = ({
-  shift,
-  onClose,
-  settings,
-}) => {
-  const handlePrint = () => {
-    window.print();
-  };
+export const ZReportModal: React.FC<ZReportModalProps> = ({ shift, onClose, settings }) => {
+  const shiftId = shift?.id;
+  const movements = useLiveQuery<CashMovement[]>(() => (shiftId != null ? db.cashMovements.where("shiftId").equals(shiftId).sortBy("createdAt") : Promise.resolve([] as CashMovement[])), [shiftId]) || [];
+  if (!shift) return null;
 
   const actualCash = shift.closingCashUsd || 0;
   const expectedCash = shift.expectedCashUsd || 0;
   const variance = round2(actualCash - expectedCash);
+  const cashIn = round2(movements.filter((m) => m.type === "in").reduce((s, m) => s + m.amountUsd, 0));
+  const cashOut = round2(movements.filter((m) => m.type === "out").reduce((s, m) => s + m.amountUsd, 0));
+  const netSales = round2((shift.totalSalesUsd || 0) - (shift.refundsTotalUsd || 0));
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-150">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md max-h-[92vh] flex flex-col shadow-2xl shadow-black/80 overflow-hidden">
-        {/* Top Header */}
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
-          <div>
-            <h3 className="font-extrabold text-sm text-white">Daily Z-Report (Shift #{shift.id})</h3>
-            <p className="text-[11px] text-slate-400">Official End of Shift Balancing Summary</p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+  const paper = (
+    <>
+      <div className="space-y-0.5 border-b border-dashed border-slate-400 pb-2.5 text-center">
+        <h2 className="text-sm font-extrabold uppercase tracking-tight">{settings.storeName}</h2>
+        <p className="text-[0.625rem] font-bold">*** Z-REPORT · SHIFT SUMMARY ***</p>
+        {settings.address && <p className="text-[0.625rem] text-slate-600">{settings.address}</p>}
+      </div>
 
-        {/* Printable Thermal Paper View */}
-        <div className="p-5 overflow-y-auto flex-1 bg-slate-950/80 flex justify-center">
-          <div
-            id="thermal-receipt-print"
-            className="w-full max-w-[320px] bg-white text-slate-900 p-5 rounded-xl shadow-lg font-mono text-[11px] leading-tight select-text"
-          >
-            {/* Header */}
-            <div className="text-center pb-3 border-b border-dashed border-slate-400 space-y-1">
-              <h2 className="text-base font-extrabold font-serif uppercase tracking-tight">
-                {settings.storeName}
-              </h2>
-              <p className="text-[10px] text-slate-600">*** Z-REPORT / SHIFT SUMMARY ***</p>
-              <p className="text-[10px] text-slate-500">{settings.address}</p>
-            </div>
+      <div className="space-y-0.5 border-b border-dashed border-slate-400 py-2 text-[0.625rem]">
+        <Line l={`Shift #${shift.id}`} r={shift.status.toUpperCase()} />
+        <Line l="Opened" r={formatDateTime(shift.openedAt)} />
+        <Line l="Closed" r={shift.closedAt ? formatDateTime(shift.closedAt) : "—"} />
+        <Line l="Cashier" r={shift.openedBy} />
+        {shift.closedBy && shift.closedBy !== shift.openedBy && <Line l="Closed by" r={shift.closedBy} />}
+      </div>
 
-            {/* Shift Meta */}
-            <div className="py-2.5 border-b border-dashed border-slate-400 space-y-0.5 text-[10px]">
-              <div className="flex justify-between">
-                <span>Shift #: {shift.id}</span>
-                <span className="uppercase font-bold text-slate-700">{shift.status}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Opened:</span>
-                <span>{formatDateTime(shift.openedAt)}</span>
-              </div>
-              {shift.closedAt && (
-                <div className="flex justify-between">
-                  <span>Closed:</span>
-                  <span>{formatDateTime(shift.closedAt)}</span>
-                </div>
-              )}
-              <div className="flex justify-between">
-                <span>Cashier:</span>
-                <span className="font-bold">{shift.openedBy}</span>
-              </div>
-            </div>
+      <div className="space-y-0.5 border-b border-dashed border-slate-400 py-2">
+        <p className="mb-1 text-[0.625rem] font-bold uppercase text-slate-500">Sales</p>
+        <Line l="Orders" r={String(shift.totalOrders || 0)} />
+        <Line l="Gross sales" r={money(shift.totalSalesUsd || 0, settings.currency)} />
+        <Line l="Refunds" r={`-${money(shift.refundsTotalUsd || 0, settings.currency)}`} />
+        <Line l="NET SALES" r={money(netSales, settings.currency)} bold />
+        {settings.enableDualCurrency && <Line l="Net in KHR" r={khr(Math.round(netSales * settings.exchangeRate))} />}
+      </div>
 
-            {/* Sales Breakdown */}
-            <div className="py-3 border-b border-dashed border-slate-400 space-y-1 text-[11px]">
-              <div className="font-bold text-[10px] pb-1 border-b border-slate-200">
-                SALES REVENUE
-              </div>
-              <div className="flex justify-between">
-                <span>Total Orders Count:</span>
-                <span className="font-bold">{shift.totalOrders || 0}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Cash Sales:</span>
-                <span>{money(shift.cashSalesUsd || 0, settings.currency)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Card Payments:</span>
-                <span>{money(shift.cardSalesUsd || 0, settings.currency)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>KHQR Payments:</span>
-                <span>{money(shift.qrSalesUsd || 0, settings.currency)}</span>
-              </div>
-              {shift.refundsTotalUsd !== undefined && shift.refundsTotalUsd > 0 && (
-                <div className="flex justify-between text-rose-600 font-bold">
-                  <span>Total Refunds:</span>
-                  <span>-{money(shift.refundsTotalUsd, settings.currency)}</span>
-                </div>
-              )}
-              <div className="flex justify-between font-bold text-xs pt-1.5 border-t border-slate-300">
-                <span>GROSS SALES:</span>
-                <span>{money(shift.totalSalesUsd || 0, settings.currency)}</span>
-              </div>
-            </div>
+      <div className="space-y-0.5 border-b border-dashed border-slate-400 py-2">
+        <p className="mb-1 text-[0.625rem] font-bold uppercase text-slate-500">By payment method</p>
+        <Line l="Cash" r={money(shift.cashSalesUsd || 0, settings.currency)} />
+        <Line l="Card" r={money(shift.cardSalesUsd || 0, settings.currency)} />
+        <Line l="KHQR" r={money(shift.qrSalesUsd || 0, settings.currency)} />
+      </div>
 
-            {/* Drawer Cash Audit */}
-            <div className="py-3 border-b border-dashed border-slate-400 space-y-1 text-[11px]">
-              <div className="font-bold text-[10px] pb-1 border-b border-slate-200">
-                CASH DRAWER AUDIT
-              </div>
-              <div className="flex justify-between">
-                <span>Opening Cash Float:</span>
-                <span>{money(shift.openingCashUsd, settings.currency)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>+ Cash Collected:</span>
-                <span>{money(shift.cashSalesUsd || 0, settings.currency)}</span>
-              </div>
-              <div className="flex justify-between font-bold pt-1 border-t border-slate-200">
-                <span>Expected Drawer Cash:</span>
-                <span>{money(expectedCash, settings.currency)}</span>
-              </div>
-              <div className="flex justify-between font-bold">
-                <span>Actual Counted Cash:</span>
-                <span>{money(actualCash, settings.currency)}</span>
-              </div>
-              <div
-                className={`flex justify-between font-extrabold pt-1 border-t border-slate-300 ${
-                  variance === 0
-                    ? "text-slate-800"
-                    : variance > 0
-                    ? "text-emerald-700"
-                    : "text-rose-700"
-                }`}
-              >
-                <span>CASH VARIANCE:</span>
-                <span>
-                  {variance > 0 ? `+${money(variance, settings.currency)} (Over)` : variance < 0 ? `${money(variance, settings.currency)} (Short)` : "$0.00 (Balanced)"}
-                </span>
-              </div>
-            </div>
-
-            {/* Signature Area */}
-            <div className="pt-6 pb-2 text-[10px] space-y-6">
-              <div className="flex justify-between">
-                <span>Cashier Signature: ____________</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Manager Signature: ____________</span>
-              </div>
-            </div>
-
-            <div className="text-center pt-2 text-[9px] text-slate-400">
-              Generated by FastPOS Web • Daily Operations
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="p-4 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between gap-3">
-          <button
-            onClick={onClose}
-            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-semibold"
-          >
-            Close
-          </button>
-          <button
-            onClick={handlePrint}
-            className="flex-1 py-2.5 px-4 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20 active:scale-95 transition cursor-pointer"
-          >
-            <Printer className="w-4 h-4" />
-            <span>Print Z-Report</span>
-          </button>
+      <div className="space-y-0.5 border-b border-dashed border-slate-400 py-2">
+        <p className="mb-1 text-[0.625rem] font-bold uppercase text-slate-500">Cash drawer</p>
+        <Line l="Opening float" r={money(shift.openingCashUsd, settings.currency)} />
+        <Line l="+ Cash sales" r={money(shift.cashSalesUsd || 0, settings.currency)} />
+        <Line l="+ Cash in" r={money(cashIn, settings.currency)} />
+        <Line l="- Cash out" r={money(cashOut, settings.currency)} />
+        <Line l="Expected" r={money(expectedCash, settings.currency)} bold />
+        <Line l="Counted" r={money(actualCash, settings.currency)} bold />
+        <div className={`mt-1 flex justify-between border px-1.5 py-1 text-xs font-extrabold ${variance === 0 ? "border-slate-900" : "border-slate-900 bg-slate-100"}`}>
+          <span>VARIANCE</span>
+          <span>{variance > 0 ? `+${money(variance, settings.currency)} OVER` : variance < 0 ? `${money(variance, settings.currency)} SHORT` : "BALANCED"}</span>
         </div>
       </div>
-    </div>
+
+      {movements.length > 0 && (
+        <div className="space-y-0.5 border-b border-dashed border-slate-400 py-2 text-[0.625rem]">
+          <p className="mb-1 font-bold uppercase text-slate-500">Cash movements</p>
+          {movements.map((m) => (
+            <Line key={m.id} l={`${m.type === "in" ? "IN " : "OUT"} ${m.reason}`} r={`${m.type === "in" ? "+" : "-"}${money(m.amountUsd, settings.currency)}`} />
+          ))}
+        </div>
+      )}
+
+      {shift.notes && (
+        <div className="border-b border-dashed border-slate-400 py-2 text-[0.625rem]">
+          <p className="font-bold uppercase text-slate-500">Notes</p>
+          <p className="italic">{shift.notes}</p>
+        </div>
+      )}
+
+      <div className="pt-3 text-center text-[0.625rem] text-slate-600">
+        <p>Signature: ______________________</p>
+        <p className="mt-2">Printed {formatDateTime(new Date())}</p>
+      </div>
+    </>
+  );
+
+  return (
+    <>
+      <Modal
+        open={!!shift}
+        onClose={onClose}
+        size="sm"
+        title={`Z-report · shift #${shift.id}`}
+        description={`${shift.openedBy} · ${formatDateTime(shift.openedAt)}`}
+        icon={<FileText />}
+        bodyClassName="bg-surface-2/60 flex justify-center"
+        footer={
+          <div className="flex gap-2">
+            <Button variant="secondary" size="lg" onClick={onClose}>
+              Done
+            </Button>
+            <Button variant="primary" size="lg" fullWidth onClick={() => window.print()} leftIcon={<Printer className="h-5 w-5" />}>
+              Print
+            </Button>
+          </div>
+        }
+      >
+        <div className="w-full max-w-[20rem] select-text rounded-xl bg-white p-4 font-mono text-[0.6875rem] leading-tight text-slate-900 shadow-md">{paper}</div>
+      </Modal>
+      {typeof document !== "undefined" &&
+        createPortal(
+          <div id="thermal-receipt-print" className="hidden print:block">
+            {paper}
+          </div>,
+          document.body
+        )}
+    </>
   );
 };
+
+const Line: React.FC<{ l: string; r: string; bold?: boolean }> = ({ l, r, bold }) => (
+  <div className={`flex justify-between gap-2 ${bold ? "font-extrabold" : ""}`}>
+    <span className="truncate">{l}</span>
+    <span className="shrink-0">{r}</span>
+  </div>
+);
