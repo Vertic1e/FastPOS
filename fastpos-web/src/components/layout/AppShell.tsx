@@ -395,7 +395,7 @@ export const AppShell: React.FC<AppShellProps> = (props) => {
 
           <div className="grid grid-cols-2 gap-2">
             <Button variant="secondary" size="lg" leftIcon={<Store className="h-4.5 w-4.5" />} onClick={() => { setMoreOpen(false); props.onOpenShopModal(); }}>
-              <span className="truncate">Switch shop</span>
+              Switch shop
             </Button>
             <Button
               variant="secondary"
@@ -403,7 +403,7 @@ export const AppShell: React.FC<AppShellProps> = (props) => {
               leftIcon={isOwner ? <ShieldCheck className="h-4.5 w-4.5" /> : <UserCheck className="h-4.5 w-4.5" />}
               onClick={() => { setMoreOpen(false); props.onOpenRoleModal(); }}
             >
-              <span className="truncate">Switch role</span>
+              Switch role
             </Button>
             {fullscreen.supported && (
               <Button

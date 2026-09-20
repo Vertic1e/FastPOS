@@ -143,7 +143,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ orderData, onClose, 
           <Button variant="secondary" size="xl" onClick={onClose} className="px-4">
             Back
           </Button>
-          <Button variant="primary" size="xl" fullWidth onClick={handleSubmit} disabled={!canSubmit} className="min-w-0">
+          <Button variant="primary" size="xl" fullWidth onClick={handleSubmit} disabled={!canSubmit}>
             <CheckCircle2 className="h-5 w-5 shrink-0" />
             <span className="truncate">
               {paymentMethod === "cash" && !isExact && isEnough && changeUsd > 0

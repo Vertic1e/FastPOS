@@ -85,7 +85,7 @@ export const ModifierModal: React.FC<ModifierModalProps> = ({ item, onClose, onA
       footer={
         <div className="flex items-center gap-3">
           <Stepper value={qty} onChange={(d) => setQty((q) => Math.max(1, q + d))} min={1} size="lg" />
-          <Button variant="primary" size="xl" fullWidth onClick={confirm} className="min-w-0 justify-between px-4">
+          <Button variant="primary" size="xl" fullWidth onClick={confirm} className="justify-between px-4">
             <span className="truncate">Add to ticket</span>
             <span className="num text-lg font-extrabold">{money(totalPrice, currency)}</span>
           </Button>
