@@ -240,10 +240,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
           <div className="mt-2.5 grid grid-cols-2 gap-2">
             <Button variant="success" size="xl" onClick={handleQuickCash} title="Exact cash — completes the sale in one tap" className="px-3">
               <Zap className="h-5 w-5 shrink-0 fill-amber-300 text-amber-300" />
-              <span className="truncate">Cash exact</span>
+              Cash exact
             </Button>
             <Button variant="primary" size="xl" onClick={handleCharge} title="Choose payment method (F2)" className="px-3">
-              <span className="truncate">Pay</span>
+              Pay
               <ArrowRight className="h-5 w-5 shrink-0" />
             </Button>
           </div>

@@ -57,6 +57,11 @@ const iconOnlySize: Record<ButtonSize, string> = {
   xl: "w-14 px-0",
 };
 
+/** A plain text label. Anything else (icons, badge nodes, custom flex layouts)
+ *  is rendered as-is so call sites keep full control over their children. */
+const isTextLabel = (value: React.ReactNode): value is string | number =>
+  typeof value === "string" || typeof value === "number";
+
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   {
     variant = "secondary",
@@ -74,30 +79,38 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
   },
   ref
 ) {
+  // A nowrap label inside an inflexible inline-flex button can never shrink, so
+  // long labels (or a larger accessibility font scale) push the button wider
+  // than its container and the text spills past the rounded edge. Give plain
+  // text labels an ellipsis instead, which only works if the button itself is
+  // allowed to shrink below its content width — hence the conditional
+  // `shrink-0`. Icon-only buttons keep a hard size so toolbars never squash them.
+  const truncateLabel = !iconOnly && !fullWidth && isTextLabel(children);
+
   return (
     <button
       ref={ref}
       type={type}
       disabled={disabled || loading}
       className={cn(
-        "press inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap font-semibold leading-none transition disabled:opacity-50 disabled:active:scale-100",
+        "press inline-flex select-none items-center justify-center whitespace-nowrap font-semibold leading-none transition disabled:opacity-50 disabled:active:scale-100 [&>svg]:shrink-0",
         variantClasses[variant],
         sizeClasses[size],
         iconOnly && iconOnlySize[size],
-        fullWidth && "w-full",
+        fullWidth ? "w-full min-w-0 shrink" : truncateLabel ? "min-w-0 shrink" : "shrink-0",
         className
       )}
       {...rest}
     >
       {loading ? (
         <span
-          className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+          className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent"
           aria-hidden
         />
       ) : (
         leftIcon
       )}
-      {children}
+      {truncateLabel ? <span className="min-w-0 truncate">{children}</span> : children}
       {!loading && rightIcon}
     </button>
   );
