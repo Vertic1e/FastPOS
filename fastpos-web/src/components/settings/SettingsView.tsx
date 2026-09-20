@@ -1,102 +1,104 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import {
-  Settings as SettingsIcon,
-  Save,
-  Download,
-  Upload,
-  RotateCcw,
-  Volume2,
-  VolumeX,
-  Store,
-  DollarSign,
-  Printer,
-  CheckCircle2,
-  AlertTriangle,
-  FileJson,
-  ShieldCheck,
-  UserCheck,
-  Lock,
-  Grid2X2,
-  Grid3X3,
-  Type,
-  Plus,
-  Eye,
-  EyeOff,
-} from "lucide-react";
+import { Store, Building2, ShieldCheck, Palette, Coins, ReceiptText, Volume2, Database, Download, Upload, RotateCcw, Eye, EyeOff, Save, Plus, CheckCircle2, Info } from "lucide-react";
 import { db, DEFAULT_SETTINGS, seedInitialData } from "@/db";
-import type { StoreSettings, UserRole, FontSizeScale, Shop } from "@/types";
+import type { StoreSettings, UserRole, FontSizeScale } from "@/types";
+import type { ThemeMode } from "@/lib/theme";
+import { cn } from "@/lib/cn";
+import { initialsOf } from "@/components/layout/nav";
+import { DisplayOptions } from "@/components/layout/DisplayOptions";
+import { Page, PageHeader, Card, CardHeader, CardBody, Button, Field, Input, Textarea, Switch, Segmented, Badge, useConfirm, useToast } from "@/components/ui";
 
 interface SettingsViewProps {
   settings: StoreSettings;
-  onUpdateSettings: (newSettings: StoreSettings) => void;
+  onUpdateSettings: (s: StoreSettings) => void | Promise<void>;
+  theme: ThemeMode;
+  onChangeTheme: (mode: ThemeMode) => void;
+  onChangeDensity: (cols: 2 | 3) => void;
+  onChangeFontSize: (size: FontSizeScale) => void;
 }
 
-export const SettingsView: React.FC<SettingsViewProps> = ({
-  settings,
-  onUpdateSettings,
-}) => {
-  const [formData, setFormData] = useState<StoreSettings>({ ...settings });
-  const [saveSuccess, setSaveSuccess] = useState(false);
-  const [importStatus, setImportStatus] = useState<string | null>(null);
+const VOLATILE_KEYS: (keyof StoreSettings)[] = ["themeMode", "accessibility", "activeShopId", "currentRole"];
+
+/** Compare persisted form fields only (display/role/shop changes are applied instantly elsewhere). */
+function isDirty(a: StoreSettings, b: StoreSettings) {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof StoreSettings>;
+  for (const k of keys) {
+    if (VOLATILE_KEYS.includes(k)) continue;
+    if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) return true;
+  }
+  return false;
+}
+
+export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdateSettings, theme, onChangeTheme, onChangeDensity, onChangeFontSize }) => {
+  const confirm = useConfirm();
+  const toast = useToast();
+  const [form, setForm] = useState<StoreSettings>({ ...settings });
   const [showPin, setShowPin] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const importRef = useRef<HTMLInputElement>(null);
 
-  // Shop management state
-  const shops = useLiveQuery(() => db.shops.toArray()) || [];
-  const [newBranchName, setNewBranchName] = useState("");
-  const [newBranchAddress, setNewBranchAddress] = useState("");
-  const [newBranchPhone, setNewBranchPhone] = useState("");
-  const [isAddingBranch, setIsAddingBranch] = useState(false);
-
-  const handleChange = (field: keyof StoreSettings, val: unknown) => {
-    setFormData((prev) => ({ ...prev, [field]: val }));
-    setSaveSuccess(false);
-  };
-
-  const handleAccessibilityChange = <K extends keyof NonNullable<StoreSettings["accessibility"]>>(
-    field: K,
-    val: NonNullable<StoreSettings["accessibility"]>[K]
-  ) => {
-    setFormData((prev) => ({
+  // Keep volatile fields (changed from the shell) in sync without clobbering edits
+  useEffect(() => {
+    setForm((prev) => ({
       ...prev,
-      accessibility: {
-        gridCols: prev.accessibility?.gridCols ?? 2,
-        fontSize: prev.accessibility?.fontSize ?? "normal",
-        [field]: val,
-      },
+      themeMode: settings.themeMode,
+      accessibility: settings.accessibility,
+      activeShopId: settings.activeShopId,
+      currentRole: settings.currentRole,
     }));
-    setSaveSuccess(false);
+  }, [settings.themeMode, settings.accessibility, settings.activeShopId, settings.currentRole]);
+
+  const dirty = isDirty(form, settings);
+  const set = <K extends keyof StoreSettings>(key: K, value: StoreSettings[K]) => setForm((prev) => ({ ...prev, [key]: value }));
+
+  const shops = useLiveQuery(() => db.shops.toArray()) || [];
+  const [addingBranch, setAddingBranch] = useState(false);
+  const [branchName, setBranchName] = useState("");
+  const [branchAddress, setBranchAddress] = useState("");
+  const [branchPhone, setBranchPhone] = useState("");
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const next: StoreSettings = {
+        ...form,
+        exchangeRate: form.exchangeRate > 0 ? form.exchangeRate : 4000,
+        taxRate: Math.max(0, form.taxRate || 0),
+        ownerPin: form.ownerPin && form.ownerPin.length >= 4 ? form.ownerPin : settings.ownerPin || "1234",
+      };
+      await onUpdateSettings(next);
+      setForm(next);
+      toast({ title: "Settings saved" });
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleCreateBranch = async () => {
-    if (!newBranchName.trim()) return;
-    const newId = (await db.shops.add({
-      name: newBranchName.trim(),
-      address: newBranchAddress.trim() || "Branch Address",
-      phone: newBranchPhone.trim() || "+855 12 000 000",
-      isDefault: false,
-    })) as number;
-
-    setFormData((prev) => ({ ...prev, activeShopId: newId }));
-    setNewBranchName("");
-    setNewBranchAddress("");
-    setNewBranchPhone("");
-    setIsAddingBranch(false);
+  const setRoleNow = async (role: UserRole) => {
+    await onUpdateSettings({ ...settings, currentRole: role });
+  };
+  const setShopNow = async (id: number) => {
+    await onUpdateSettings({ ...settings, activeShopId: id });
   };
 
-  const handleSave = async () => {
-    await db.settings.put({ id: "config", data: formData });
-    onUpdateSettings(formData);
-    setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 3000);
+  const createBranch = async () => {
+    if (!branchName.trim()) return;
+    const id = (await db.shops.add({ name: branchName.trim(), address: branchAddress.trim() || "Branch address", phone: branchPhone.trim() || "", isDefault: false })) as number;
+    setBranchName("");
+    setBranchAddress("");
+    setBranchPhone("");
+    setAddingBranch(false);
+    await setShopNow(id);
+    toast({ title: "Branch added", description: "This device now sells for the new branch." });
   };
 
-  // Export complete IndexedDB database as timestamped JSON
-  const handleExportBackup = async () => {
+  const exportBackup = async () => {
     const allData = {
       version: 1,
       exportedAt: new Date().toISOString(),
-      settings: formData,
+      settings: form,
+      shops: await db.shops.toArray(),
       categories: await db.categories.toArray(),
       menuItems: await db.menuItems.toArray(),
       orders: await db.orders.toArray(),
@@ -106,9 +108,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       stockMovements: await db.stockMovements.toArray(),
       heldTickets: await db.heldTickets.toArray(),
     };
-
-    const jsonStr = JSON.stringify(allData, null, 2);
-    const blob = new Blob([jsonStr], { type: "application/json" });
+    const blob = new Blob([JSON.stringify(allData, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -117,33 +117,31 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    toast({ title: "Backup downloaded" });
   };
 
-  // Import JSON backup
-  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const importBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = async (ev) => {
       try {
-        const text = ev.target?.result as string;
-        const data = JSON.parse(text);
-
-        if (!data.categories || !data.menuItems) {
-          throw new Error("Invalid backup file structure");
-        }
-
-        if (confirm("Restore from this backup? Existing records will be replaced.")) {
-          await db.categories.clear();
-          await db.menuItems.clear();
-          await db.orders.clear();
-          await db.orderItems.clear();
-          await db.shifts.clear();
-          await db.cashMovements.clear();
-          await db.stockMovements.clear();
-          await db.heldTickets.clear();
-
+        const data = JSON.parse(ev.target?.result as string);
+        if (!data.categories || !data.menuItems) throw new Error("This file doesn't look like a FastPOS backup.");
+        const ok = await confirm({
+          title: "Restore this backup?",
+          message: `Everything on this device will be replaced with the backup from ${data.exportedAt ? new Date(data.exportedAt).toLocaleString() : "an unknown date"}.`,
+          confirmLabel: "Restore",
+          tone: "warning",
+        });
+        if (!ok) return;
+        await db.transaction("rw", [db.shops, db.categories, db.menuItems, db.orders, db.orderItems, db.shifts, db.cashMovements, db.stockMovements, db.heldTickets], async () => {
+          await Promise.all([db.categories.clear(), db.menuItems.clear(), db.orders.clear(), db.orderItems.clear(), db.shifts.clear(), db.cashMovements.clear(), db.stockMovements.clear(), db.heldTickets.clear()]);
+          if (data.shops?.length) {
+            await db.shops.clear();
+            await db.shops.bulkAdd(data.shops);
+          }
           if (data.categories?.length) await db.categories.bulkAdd(data.categories);
           if (data.menuItems?.length) await db.menuItems.bulkAdd(data.menuItems);
           if (data.orders?.length) await db.orders.bulkAdd(data.orders);
@@ -152,529 +150,249 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           if (data.cashMovements?.length) await db.cashMovements.bulkAdd(data.cashMovements);
           if (data.stockMovements?.length) await db.stockMovements.bulkAdd(data.stockMovements);
           if (data.heldTickets?.length) await db.heldTickets.bulkAdd(data.heldTickets);
-
-          if (data.settings) {
-            await db.settings.put({ id: "config", data: data.settings });
-            onUpdateSettings(data.settings);
-            setFormData(data.settings);
-          }
-
-          setImportStatus("Database restored successfully!");
-          setTimeout(() => setImportStatus(null), 4000);
+        });
+        if (data.settings) {
+          await onUpdateSettings(data.settings);
+          setForm(data.settings);
         }
+        toast({ title: "Backup restored" });
       } catch (err) {
-        alert("Failed to parse backup JSON: " + (err as Error).message);
+        toast({ title: "Restore failed", description: (err as Error).message, tone: "error" });
       }
     };
     reader.readAsText(file);
   };
 
-  // Reset to sample demo data
-  const handleResetDemo = async () => {
-    if (confirm("Reset everything to default Cafe & Restaurant demo data?")) {
-      await seedInitialData(true);
-      setFormData(DEFAULT_SETTINGS);
-      onUpdateSettings(DEFAULT_SETTINGS);
-      alert("Store reset to default demo data.");
-    }
+  const resetDemo = async () => {
+    const ok = await confirm({
+      title: "Reset to demo data?",
+      message: "All orders, items, shifts and settings on this device will be replaced with the sample café data. Export a backup first if you need it.",
+      confirmLabel: "Reset everything",
+      tone: "danger",
+    });
+    if (!ok) return;
+    await seedInitialData(true);
+    await onUpdateSettings(DEFAULT_SETTINGS);
+    setForm(DEFAULT_SETTINGS);
+    toast({ title: "Demo data restored", tone: "info" });
   };
 
   return (
-    <div className="flex-1 p-4 sm:p-6 max-w-4xl mx-auto w-full space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-extrabold text-white tracking-tight">Store Settings</h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Configure store profile, currencies, tax rates, thermal receipts, and backups
-          </p>
-        </div>
+    <Page narrow className="relative">
+      <PageHeader title="Settings" subtitle="Store details, money, receipts and data." />
 
-        <button
-          onClick={handleSave}
-          className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs shadow-lg shadow-orange-500/20 active:scale-95 transition cursor-pointer"
-        >
-          <Save className="w-4 h-4" />
-          <span>Save Changes</span>
-        </button>
-      </div>
+      {/* Store */}
+      <Card>
+        <CardHeader icon={<Store />} title="Store" subtitle="Shown on receipts and the KHQR panel." />
+        <CardBody className="grid gap-4 sm:grid-cols-2">
+          <Field label="Store name" className="sm:col-span-2">
+            <Input value={form.storeName} onChange={(e) => set("storeName", e.target.value)} />
+          </Field>
+          <Field label="Phone">
+            <Input value={form.phone} onChange={(e) => set("phone", e.target.value)} inputMode="tel" />
+          </Field>
+          <Field label="Merchant name (KHQR)">
+            <Input value={form.merchantName} onChange={(e) => set("merchantName", e.target.value)} />
+          </Field>
+          <Field label="Address" className="sm:col-span-2">
+            <Input value={form.address} onChange={(e) => set("address", e.target.value)} />
+          </Field>
+        </CardBody>
+      </Card>
 
-      {saveSuccess && (
-        <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4" />
-          <span>Settings saved successfully to browser storage!</span>
-        </div>
-      )}
-
-      {importStatus && (
-        <div className="p-3.5 rounded-2xl bg-blue-500/10 border border-blue-500/30 text-blue-300 text-xs font-semibold flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4" />
-          <span>{importStatus}</span>
-        </div>
-      )}
-
-      {/* Store Profile */}
-      <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-4 shadow-xl">
-        <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
-          <Store className="w-5 h-5 text-orange-400" />
-          <h3 className="font-extrabold text-base text-white">Restaurant Profile</h3>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-          <div className="space-y-1">
-            <label className="font-semibold text-slate-300">Store Name</label>
-            <input
-              type="text"
-              value={formData.storeName}
-              onChange={(e) => handleChange("storeName", e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 focus:outline-none focus:border-orange-500"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="font-semibold text-slate-300">Phone Number</label>
-            <input
-              type="text"
-              value={formData.phone}
-              onChange={(e) => handleChange("phone", e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 focus:outline-none focus:border-orange-500"
-            />
-          </div>
-
-          <div className="col-span-1 sm:col-span-2 space-y-1">
-            <label className="font-semibold text-slate-300">Physical Address</label>
-            <input
-              type="text"
-              value={formData.address}
-              onChange={(e) => handleChange("address", e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 focus:outline-none focus:border-orange-500"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Multi-Shop / Branch Management */}
-      <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-4 shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-2">
-            <Store className="w-5 h-5 text-orange-400" />
-            <h3 className="font-extrabold text-base text-white">Multi-Shop & Branches</h3>
-          </div>
-          <button
-            type="button"
-            onClick={() => setIsAddingBranch(!isAddingBranch)}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 text-xs text-orange-400 font-bold transition"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add Branch</span>
-          </button>
-        </div>
-
-        <p className="text-xs text-slate-400">
-          Seamlessly link and switch between different branch locations. Each shop maintains its own isolated catalog and orders.
-        </p>
-
-        {isAddingBranch && (
-          <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
-            <h4 className="text-xs font-bold text-slate-200">Register New Shop Branch</h4>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
-              <input
-                type="text"
-                placeholder="Branch Name (e.g. Airport Kiosk)"
-                value={newBranchName}
-                onChange={(e) => setNewBranchName(e.target.value)}
-                className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-orange-500"
-              />
-              <input
-                type="text"
-                placeholder="Address / Location"
-                value={newBranchAddress}
-                onChange={(e) => setNewBranchAddress(e.target.value)}
-                className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-orange-500"
-              />
-              <input
-                type="text"
-                placeholder="Phone Number"
-                value={newBranchPhone}
-                onChange={(e) => setNewBranchPhone(e.target.value)}
-                className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-orange-500"
-              />
+      {/* Branches */}
+      <Card>
+        <CardHeader
+          icon={<Building2 />}
+          title="Branches"
+          subtitle="Each branch keeps its own catalog, orders and shifts."
+          actions={
+            !addingBranch && (
+              <Button variant="secondary" size="sm" onClick={() => setAddingBranch(true)} leftIcon={<Plus className="h-4 w-4" />}>
+                Add branch
+              </Button>
+            )
+          }
+        />
+        <CardBody className="flex flex-col gap-3">
+          <ul className="flex flex-col gap-2">
+            {shops.map((s) => {
+              const active = s.id === settings.activeShopId;
+              return (
+                <li key={s.id}>
+                  <button type="button" onClick={() => setShopNow(s.id!)} className={cn("press flex w-full items-center gap-3 rounded-2xl border p-3 text-left", active ? "border-brand bg-brand-soft" : "border-line bg-surface-2/40 hover:border-line-strong")}>
+                    <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-extrabold", active ? "bg-brand text-white" : "bg-surface-3 text-fg-muted")}>{initialsOf(s.name)}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-bold text-fg">{s.name}</span>
+                      <span className="block truncate text-xs text-fg-muted">{[s.address, s.phone].filter(Boolean).join(" · ")}</span>
+                    </span>
+                    {active && <Badge tone="brand">Selling here</Badge>}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {addingBranch && (
+            <div className="anim-fade-in grid gap-3 rounded-2xl border border-line bg-surface-2/40 p-3 sm:grid-cols-2">
+              <Field label="Branch name" className="sm:col-span-2">
+                <Input value={branchName} onChange={(e) => setBranchName(e.target.value)} autoFocus placeholder="e.g. Riverside Café" />
+              </Field>
+              <Field label="Address">
+                <Input value={branchAddress} onChange={(e) => setBranchAddress(e.target.value)} />
+              </Field>
+              <Field label="Phone">
+                <Input value={branchPhone} onChange={(e) => setBranchPhone(e.target.value)} inputMode="tel" />
+              </Field>
+              <div className="flex gap-2 sm:col-span-2">
+                <Button variant="secondary" onClick={() => setAddingBranch(false)}>
+                  Cancel
+                </Button>
+                <Button variant="primary" onClick={createBranch} disabled={!branchName.trim()} fullWidth>
+                  Create branch
+                </Button>
+              </div>
             </div>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setIsAddingBranch(false)}
-                className="px-3 py-1.5 rounded-xl text-xs text-slate-400 hover:text-white"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleCreateBranch}
-                className="px-4 py-1.5 rounded-xl bg-orange-500 text-white font-bold text-xs shadow-md shadow-orange-500/20 active:scale-95 transition"
-              >
-                Save Branch
-              </button>
-            </div>
+          )}
+        </CardBody>
+      </Card>
+
+      {/* Access */}
+      <Card>
+        <CardHeader icon={<ShieldCheck />} title="Access" subtitle="Cashier mode hides items, analytics and settings." />
+        <CardBody className="grid gap-4 sm:grid-cols-2">
+          <Field label="Current role" hint="Applied immediately.">
+            <Segmented<UserRole>
+              fullWidth
+              aria-label="Role"
+              value={settings.currentRole || "owner"}
+              onChange={setRoleNow}
+              options={[
+                { value: "owner", label: "Owner" },
+                { value: "cashier", label: "Cashier" },
+              ]}
+            />
+          </Field>
+          <Field label="Owner PIN" hint="4–6 digits. Needed to switch back to owner.">
+            <Input
+              type={showPin ? "text" : "password"}
+              inputMode="numeric"
+              value={form.ownerPin}
+              onChange={(e) => set("ownerPin", e.target.value.replace(/\D/g, "").slice(0, 6))}
+              mono
+              autoComplete="off"
+              rightSlot={
+                <Button variant="ghost" size="sm" iconOnly aria-label={showPin ? "Hide PIN" : "Show PIN"} onClick={() => setShowPin((v) => !v)}>
+                  {showPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              }
+            />
+          </Field>
+        </CardBody>
+      </Card>
+
+      {/* Display */}
+      <Card>
+        <CardHeader icon={<Palette />} title="Display" subtitle="Applied immediately on this device." />
+        <CardBody>
+          <DisplayOptions theme={theme} accessibility={settings.accessibility || { gridCols: 2, fontSize: "normal" }} onChangeTheme={onChangeTheme} onChangeDensity={onChangeDensity} onChangeFontSize={onChangeFontSize} />
+        </CardBody>
+      </Card>
+
+      {/* Money */}
+      <Card>
+        <CardHeader icon={<Coins />} title="Currency & tax" />
+        <CardBody className="grid gap-4 sm:grid-cols-2">
+          <Field label="Currency symbol">
+            <Input value={form.currency} onChange={(e) => set("currency", e.target.value)} maxLength={4} mono />
+          </Field>
+          <Field label="Secondary currency">
+            <Input value={form.secondaryCurrency} onChange={(e) => set("secondaryCurrency", e.target.value)} maxLength={4} mono />
+          </Field>
+          <Field label="Exchange rate" hint={`1 ${form.currency || "$"} = ${(form.exchangeRate || 0).toLocaleString()} ${form.secondaryCurrency || "៛"}`}>
+            <Input type="text" inputMode="numeric" value={String(form.exchangeRate ?? "")} onChange={(e) => set("exchangeRate", parseFloat(e.target.value.replace(/[^0-9.]/g, "")) || 0)} mono />
+          </Field>
+          <Field label="Tax / VAT rate" hint="Added on top of the subtotal.">
+            <Input type="text" inputMode="decimal" value={String(form.taxRate ?? "")} onChange={(e) => set("taxRate", parseFloat(e.target.value.replace(/[^0-9.]/g, "")) || 0)} suffix="%" mono />
+          </Field>
+          <div className="sm:col-span-2">
+            <Switch checked={form.enableDualCurrency} onChange={(v) => set("enableDualCurrency", v)} label="Show prices in both currencies" description="Displays riel next to dollar amounts on tiles, the ticket and receipts." />
           </div>
+        </CardBody>
+      </Card>
+
+      {/* Receipts */}
+      <Card>
+        <CardHeader icon={<ReceiptText />} title="Receipts" subtitle="Printed on 58/80 mm thermal paper." />
+        <CardBody className="grid gap-4 sm:grid-cols-2">
+          <Field label="Header line">
+            <Textarea value={form.receiptHeader} onChange={(e) => set("receiptHeader", e.target.value)} rows={2} className="min-h-[3.5rem]" />
+          </Field>
+          <Field label="Footer line">
+            <Textarea value={form.receiptFooter} onChange={(e) => set("receiptFooter", e.target.value)} rows={2} className="min-h-[3.5rem]" />
+          </Field>
+          <Field label="KHQR merchant ID" className="sm:col-span-2">
+            <Input value={form.khqrMerchantId} onChange={(e) => set("khqrMerchantId", e.target.value)} mono />
+          </Field>
+        </CardBody>
+      </Card>
+
+      {/* Sounds */}
+      <Card>
+        <CardBody>
+          <Switch checked={form.soundEnabled} onChange={(v) => set("soundEnabled", v)} icon={<Volume2 className="h-4 w-4" />} label="Register sounds" description="Short click on add, a chime when a sale completes." />
+        </CardBody>
+      </Card>
+
+      {/* Data */}
+      <Card>
+        <CardHeader icon={<Database />} title="Data & backup" subtitle="Everything is stored on this device. Back up regularly." />
+        <CardBody className="flex flex-col gap-3">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Button variant="secondary" size="lg" onClick={exportBackup} leftIcon={<Download className="h-5 w-5" />}>
+              Export backup (JSON)
+            </Button>
+            <Button variant="secondary" size="lg" onClick={() => importRef.current?.click()} leftIcon={<Upload className="h-5 w-5" />}>
+              Restore from backup
+            </Button>
+            <input ref={importRef} type="file" accept="application/json,.json" className="hidden" onChange={importBackup} />
+          </div>
+          <div className="flex flex-col gap-2 rounded-2xl border border-bad/30 bg-bad-soft/40 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-2 text-sm">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-bad" />
+              <span className="text-fg-muted">Reset wipes all orders, items and shifts on this device and reloads the sample café.</span>
+            </div>
+            <Button variant="subtle-danger" size="md" onClick={resetDemo} leftIcon={<RotateCcw className="h-4 w-4" />} className="shrink-0">
+              Reset to demo
+            </Button>
+          </div>
+        </CardBody>
+      </Card>
+
+      <p className="text-center text-xs text-fg-subtle">FastPOS Web · offline-first PWA</p>
+
+      {/* Sticky save bar */}
+      <div
+        className={cn(
+          "pointer-events-none sticky bottom-0 z-20 -mx-3 mt-2 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] transition sm:-mx-5 sm:px-5",
+          dirty ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0"
         )}
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-          {shops.map((s) => {
-            const isSelected = (formData.activeShopId || 1) === s.id;
-            return (
-              <div
-                key={s.id}
-                onClick={() => handleChange("activeShopId", s.id)}
-                className={`p-3.5 rounded-2xl border cursor-pointer transition flex items-center justify-between ${
-                  isSelected
-                    ? "bg-orange-500/10 border-orange-500/50"
-                    : "bg-slate-950 border-slate-800 hover:border-slate-700"
-                }`}
-              >
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-white text-sm">{s.name}</span>
-                    {isSelected && (
-                      <span className="px-2 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-extrabold">
-                        Active
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-slate-400 text-[11px] mt-0.5">{s.address || "No address set"}</p>
-                </div>
-                <input
-                  type="radio"
-                  name="activeShop"
-                  checked={isSelected}
-                  onChange={() => handleChange("activeShopId", s.id)}
-                  className="w-4 h-4 text-orange-500 focus:ring-0 cursor-pointer"
-                />
-              </div>
-            );
-          })}
+        aria-hidden={!dirty}
+      >
+        <div className="pointer-events-auto mx-auto flex max-w-4xl items-center gap-3 rounded-2xl border border-line bg-surface/95 p-2 pl-4 shadow-pop backdrop-blur">
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">You have unsaved changes</span>
+          <Button variant="ghost" size="md" onClick={() => setForm({ ...settings })} disabled={!dirty || saving}>
+            Discard
+          </Button>
+          <Button variant="primary" size="md" onClick={save} disabled={!dirty} loading={saving} leftIcon={<Save className="h-4 w-4" />}>
+            Save
+          </Button>
         </div>
       </div>
-
-      {/* Role & Security (Owner vs Cashier) */}
-      <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-4 shadow-xl">
-        <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
-          <ShieldCheck className="w-5 h-5 text-orange-400" />
-          <h3 className="font-extrabold text-base text-white">Role & Access Control</h3>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-          <div className="space-y-1">
-            <label className="font-semibold text-slate-300">Active User Role</label>
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => handleChange("currentRole", "owner")}
-                className={`p-3 rounded-2xl border font-bold flex flex-col items-center gap-1.5 transition ${
-                  formData.currentRole === "owner"
-                    ? "bg-orange-500/15 border-orange-500 text-orange-300 shadow-md"
-                    : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
-                }`}
-              >
-                <ShieldCheck className="w-5 h-5 text-orange-400" />
-                <span>Owner (Full Access)</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleChange("currentRole", "cashier")}
-                className={`p-3 rounded-2xl border font-bold flex flex-col items-center gap-1.5 transition ${
-                  formData.currentRole === "cashier"
-                    ? "bg-emerald-500/15 border-emerald-500 text-emerald-300 shadow-md"
-                    : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
-                }`}
-              >
-                <UserCheck className="w-5 h-5 text-emerald-400" />
-                <span>Cashier (Register Only)</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <label className="font-semibold text-slate-300">Owner Security PIN</label>
-            <p className="text-[11px] text-slate-500 mb-1">
-              Required to switch from Cashier to Owner mode or access restricted settings (Default: 1234).
-            </p>
-            <div className="relative">
-              <input
-                type={showPin ? "text" : "password"}
-                maxLength={6}
-                value={formData.ownerPin || "1234"}
-                onChange={(e) => handleChange("ownerPin", e.target.value)}
-                placeholder="4-digit PIN"
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 font-mono font-bold tracking-widest focus:outline-none focus:border-orange-500"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPin(!showPin)}
-                className="absolute right-3 top-2.5 text-slate-400 hover:text-white"
-              >
-                {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Accessibility Options */}
-      <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-4 shadow-xl">
-        <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
-          <Type className="w-5 h-5 text-indigo-400" />
-          <h3 className="font-extrabold text-base text-white">Accessibility & Display Options</h3>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-          {/* Grid Density */}
-          <div className="space-y-1">
-            <label className="font-semibold text-slate-300">Item Grid Density</label>
-            <p className="text-[11px] text-slate-500 mb-2">
-              Choose card layout density optimized for mobile screens and quick tapping.
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => handleAccessibilityChange("gridCols", 2)}
-                className={`p-3 rounded-2xl border font-bold flex items-center justify-center gap-2 transition ${
-                  (formData.accessibility?.gridCols || 2) === 2
-                    ? "bg-orange-500/15 border-orange-500 text-orange-300"
-                    : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
-                }`}
-              >
-                <Grid2X2 className="w-4 h-4 text-orange-400" />
-                <span>2x2 (Larger Cards)</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleAccessibilityChange("gridCols", 3)}
-                className={`p-3 rounded-2xl border font-bold flex items-center justify-center gap-2 transition ${
-                  formData.accessibility?.gridCols === 3
-                    ? "bg-orange-500/15 border-orange-500 text-orange-300"
-                    : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
-                }`}
-              >
-                <Grid3X3 className="w-4 h-4 text-orange-400" />
-                <span>3x3 (Compact Grid)</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Font Size Scaling */}
-          <div className="space-y-1">
-            <label className="font-semibold text-slate-300">Interface Font Size</label>
-            <p className="text-[11px] text-slate-500 mb-2">
-              Increase typography scale across register, item cards, and orders for enhanced legibility.
-            </p>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => handleAccessibilityChange("fontSize", "normal")}
-                className={`p-3 rounded-2xl border font-bold flex flex-col items-center gap-1 transition ${
-                  (formData.accessibility?.fontSize || "normal") === "normal"
-                    ? "bg-orange-500/15 border-orange-500 text-orange-300"
-                    : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
-                }`}
-              >
-                <span className="text-xs">A</span>
-                <span className="text-[10px]">Normal</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleAccessibilityChange("fontSize", "large")}
-                className={`p-3 rounded-2xl border font-bold flex flex-col items-center gap-1 transition ${
-                  formData.accessibility?.fontSize === "large"
-                    ? "bg-orange-500/15 border-orange-500 text-orange-300"
-                    : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
-                }`}
-              >
-                <span className="text-sm font-extrabold">A+</span>
-                <span className="text-[10px]">Large</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleAccessibilityChange("fontSize", "xlarge")}
-                className={`p-3 rounded-2xl border font-bold flex flex-col items-center gap-1 transition ${
-                  formData.accessibility?.fontSize === "xlarge"
-                    ? "bg-orange-500/15 border-orange-500 text-orange-300"
-                    : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
-                }`}
-              >
-                <span className="text-base font-extrabold">A++</span>
-                <span className="text-[10px]">Extra Large</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Currency & Tax */}
-      <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-4 shadow-xl">
-        <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
-          <DollarSign className="w-5 h-5 text-emerald-400" />
-          <h3 className="font-extrabold text-base text-white">Currency & Tax Configuration</h3>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-          <div className="space-y-1">
-            <label className="font-semibold text-slate-300">Primary Currency Symbol</label>
-            <input
-              type="text"
-              value={formData.currency}
-              onChange={(e) => handleChange("currency", e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 font-mono font-bold focus:outline-none focus:border-orange-500"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="font-semibold text-slate-300">Secondary Currency (e.g. KHR)</label>
-            <input
-              type="text"
-              value={formData.secondaryCurrency}
-              onChange={(e) => handleChange("secondaryCurrency", e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 font-mono focus:outline-none focus:border-orange-500"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="font-semibold text-slate-300">Exchange Rate (1 USD = X KHR)</label>
-            <input
-              type="number"
-              value={formData.exchangeRate}
-              onChange={(e) => handleChange("exchangeRate", parseFloat(e.target.value) || 4000)}
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 font-mono font-bold focus:outline-none focus:border-orange-500"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="font-semibold text-slate-300">Tax Rate (%)</label>
-            <input
-              type="number"
-              step="0.1"
-              value={formData.taxRate}
-              onChange={(e) => handleChange("taxRate", parseFloat(e.target.value) || 0)}
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 font-mono focus:outline-none focus:border-orange-500"
-            />
-          </div>
-
-          <div className="col-span-1 sm:col-span-2 flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800">
-            <div>
-              <span className="font-bold text-slate-200">Enable Dual Currency (USD + KHR)</span>
-              <p className="text-[11px] text-slate-500">
-                Displays live Cambodian Riel calculations alongside USD on register and receipts
-              </p>
-            </div>
-            <input
-              type="checkbox"
-              checked={formData.enableDualCurrency}
-              onChange={(e) => handleChange("enableDualCurrency", e.target.checked)}
-              className="w-4 h-4 rounded text-orange-500 focus:ring-0 cursor-pointer"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Receipts & Sound */}
-      <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-4 shadow-xl">
-        <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
-          <Printer className="w-5 h-5 text-amber-400" />
-          <h3 className="font-extrabold text-base text-white">Thermal Receipt & Audio</h3>
-        </div>
-
-        <div className="space-y-3 text-xs">
-          <div className="space-y-1">
-            <label className="font-semibold text-slate-300">Receipt Header Line</label>
-            <input
-              type="text"
-              value={formData.receiptHeader}
-              onChange={(e) => handleChange("receiptHeader", e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 focus:outline-none focus:border-orange-500"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="font-semibold text-slate-300">Receipt Footer Line</label>
-            <input
-              type="text"
-              value={formData.receiptFooter}
-              onChange={(e) => handleChange("receiptFooter", e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 focus:outline-none focus:border-orange-500"
-            />
-          </div>
-
-          <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800 pt-2">
-            <div className="flex items-center gap-3">
-              {formData.soundEnabled ? (
-                <Volume2 className="w-5 h-5 text-emerald-400" />
-              ) : (
-                <VolumeX className="w-5 h-5 text-slate-500" />
-              )}
-              <div>
-                <span className="font-bold text-slate-200">Synthesized Register Sound Effects</span>
-                <p className="text-[11px] text-slate-500">
-                  Plays cash drawer ding and click feedback on order checkouts
-                </p>
-              </div>
-            </div>
-            <input
-              type="checkbox"
-              checked={formData.soundEnabled}
-              onChange={(e) => handleChange("soundEnabled", e.target.checked)}
-              className="w-4 h-4 rounded text-orange-500 focus:ring-0 cursor-pointer"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Data Backup & Portability */}
-      <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-4 shadow-xl">
-        <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
-          <FileJson className="w-5 h-5 text-blue-400" />
-          <h3 className="font-extrabold text-base text-white">
-            Data Portability & Offline Backup
-          </h3>
-        </div>
-
-        <p className="text-xs text-slate-400">
-          FastPOS Web stores all restaurant records inside your browser's IndexedDB. Download a
-          full backup JSON file to transfer your catalog to another device or save a daily offline
-          backup.
-        </p>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-          <button
-            onClick={handleExportBackup}
-            className="flex items-center justify-center gap-2 p-3.5 rounded-2xl bg-slate-950 hover:bg-slate-850 border border-slate-800 text-slate-200 text-xs font-bold transition cursor-pointer"
-          >
-            <Download className="w-4 h-4 text-emerald-400" />
-            <span>Download Backup JSON</span>
-          </button>
-
-          <label className="flex items-center justify-center gap-2 p-3.5 rounded-2xl bg-slate-950 hover:bg-slate-850 border border-slate-800 text-slate-200 text-xs font-bold transition cursor-pointer">
-            <Upload className="w-4 h-4 text-blue-400" />
-            <span>Restore Backup JSON</span>
-            <input
-              type="file"
-              accept=".json"
-              onChange={handleImportBackup}
-              className="hidden"
-            />
-          </label>
-
-          <button
-            onClick={handleResetDemo}
-            className="flex items-center justify-center gap-2 p-3.5 rounded-2xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 text-xs font-bold transition cursor-pointer"
-          >
-            <RotateCcw className="w-4 h-4 text-rose-400" />
-            <span>Reset Demo Data</span>
-          </button>
-        </div>
-      </div>
-    </div>
+      {!dirty && (
+        <span className="sr-only" aria-live="polite">
+          <CheckCircle2 /> All changes saved
+        </span>
+      )}
+    </Page>
   );
 };

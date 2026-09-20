@@ -1,71 +1,59 @@
 import React, { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import {
-  Layers,
-  Banknote,
-  DollarSign,
-  ArrowDownRight,
-  ArrowUpRight,
-  Printer,
-  CheckCircle2,
-  Clock,
-  User,
-  AlertCircle,
-  PlusCircle,
-  MinusCircle,
-} from "lucide-react";
+import { Layers, Banknote, ArrowDownRight, ArrowUpRight, FileText, Clock, User, Receipt, CreditCard, QrCode, LockKeyhole, Play, ChevronRight } from "lucide-react";
 import { db } from "@/db";
 import type { Shift, StoreSettings, CashMovement } from "@/types";
 import { ZReportModal } from "./ZReportModal";
-import { money, khr, formatDateTime, round2 } from "@/lib/format";
+import { money, khr, formatDateTime, formatTime, round2 } from "@/lib/format";
+import { cn } from "@/lib/cn";
+import { Page, PageHeader, Card, CardHeader, CardBody, StatCard, Button, Field, Input, Textarea, Modal, Segmented, Badge, EmptyState, useToast } from "@/components/ui";
 
 interface ShiftManagerProps {
   settings: StoreSettings;
 }
 
+function elapsed(from: Date) {
+  const mins = Math.max(0, Math.round((Date.now() - new Date(from).getTime()) / 60000));
+  const h = Math.floor(mins / 60);
+  return h > 0 ? `${h}h ${mins % 60}m` : `${mins}m`;
+}
+
 export const ShiftManager: React.FC<ShiftManagerProps> = ({ settings }) => {
   const activeShopId = settings.activeShopId || 1;
-  const shifts = useLiveQuery(
-    () => db.shifts.filter((s) => !s.shopId || s.shopId === activeShopId).reverse().sortBy("openedAt"),
-    [activeShopId]
-  ) || [];
+  const toast = useToast();
+  const shifts = useLiveQuery(() => db.shifts.filter((s) => !s.shopId || s.shopId === activeShopId).reverse().sortBy("openedAt"), [activeShopId]) || [];
   const activeShift = shifts.find((s) => s.status === "open");
+  const closedShifts = shifts.filter((s) => s.status === "closed");
 
-  // Open Shift Form State
-  const [cashierName, setCashierName] = useState("Alex Rivers");
-  const [openingFloatUsd, setOpeningFloatUsd] = useState("100.00");
+  // Open shift form
+  const [cashierName, setCashierName] = useState("");
+  const [openingFloatUsd, setOpeningFloatUsd] = useState("100");
   const [openingFloatKhr, setOpeningFloatKhr] = useState("400000");
 
-  // Close Shift Form State
-  const [isClosingShift, setIsClosingShift] = useState(false);
+  // Close shift dialog
+  const [isClosing, setIsClosing] = useState(false);
   const [countedCashUsd, setCountedCashUsd] = useState("");
   const [closeNotes, setCloseNotes] = useState("");
 
-  // Cash In / Cash Out State
-  const [isCashMovementOpen, setIsCashMovementOpen] = useState(false);
+  // Cash in/out dialog
+  const [movementOpen, setMovementOpen] = useState(false);
   const [movementType, setMovementType] = useState<"in" | "out">("out");
   const [movementAmount, setMovementAmount] = useState("");
   const [movementReason, setMovementReason] = useState("");
 
-  // Selected Z-Report modal
   const [reportShift, setReportShift] = useState<Shift | null>(null);
 
-  // Cash movements for active shift
-  const cashMovements = useLiveQuery(
-    () => (activeShift?.id ? db.cashMovements.where("shiftId").equals(activeShift.id).toArray() : []),
-    [activeShift?.id]
-  ) || [];
+  const cashMovements = useLiveQuery<CashMovement[]>(() => (activeShift?.id ? db.cashMovements.where("shiftId").equals(activeShift.id).reverse().sortBy("createdAt") : Promise.resolve([] as CashMovement[])), [activeShift?.id]) || [];
 
-  // Open New Shift
-  const handleOpenShift = async () => {
+  const openShift = async () => {
     const floatUsd = parseFloat(openingFloatUsd) || 0;
     const floatKhr = parseFloat(openingFloatKhr) || 0;
-
+    const name = cashierName.trim() || "Cashier";
     await db.shifts.add({
       shopId: activeShopId,
       status: "open",
       openedAt: new Date(),
-      openedBy: cashierName.trim() || "Cashier",
+      openedBy: name,
       openingCashUsd: floatUsd,
       openingCashKhr: floatKhr,
       expectedCashUsd: floatUsd,
@@ -78,460 +66,318 @@ export const ShiftManager: React.FC<ShiftManagerProps> = ({ settings }) => {
       qrSalesUsd: 0,
       refundsTotalUsd: 0,
     });
+    toast({ title: "Shift opened", description: `${name} · float ${money(floatUsd, settings.currency)}` });
   };
 
-  // Close Active Shift
-  const handleConfirmCloseShift = async () => {
+  const confirmClose = async () => {
     if (!activeShift) return;
-
     const actualCash = parseFloat(countedCashUsd) || 0;
-    const expectedCash = activeShift.expectedCashUsd || activeShift.openingCashUsd;
-
     const updated: Partial<Shift> = {
       status: "closed",
       closedAt: new Date(),
-      closedBy: cashierName,
+      closedBy: activeShift.openedBy,
       closingCashUsd: actualCash,
       notes: closeNotes.trim() || undefined,
     };
-
     await db.shifts.update(activeShift.id!, updated);
-
-    // Show Z-Report
     setReportShift({ ...activeShift, ...updated } as Shift);
-    setIsClosingShift(false);
+    setIsClosing(false);
     setCountedCashUsd("");
     setCloseNotes("");
   };
 
-  // Record Cash In / Out
-  const handleSaveMovement = async () => {
+  const saveMovement = async () => {
     if (!activeShift) return;
     const amt = parseFloat(movementAmount) || 0;
     if (amt <= 0) return;
-
+    const reason = movementReason.trim() || (movementType === "in" ? "Cash in" : "Cash out");
     await db.cashMovements.add({
       shiftId: activeShift.id!,
       type: movementType,
       amountUsd: amt,
       amountKhr: Math.round(amt * settings.exchangeRate),
-      reason: movementReason.trim() || (movementType === "in" ? "Cash In" : "Cash Out"),
+      reason,
       createdAt: new Date(),
     });
-
     const prevExpCash = activeShift.expectedCashUsd || activeShift.openingCashUsd;
     const newExpCash = movementType === "in" ? prevExpCash + amt : Math.max(0, prevExpCash - amt);
-
-    await db.shifts.update(activeShift.id!, {
-      expectedCashUsd: round2(newExpCash),
-    });
-
-    setIsCashMovementOpen(false);
+    await db.shifts.update(activeShift.id!, { expectedCashUsd: round2(newExpCash) });
+    toast({ title: movementType === "in" ? "Cash added to drawer" : "Cash removed from drawer", description: `${money(amt, settings.currency)} · ${reason}`, tone: "info" });
+    setMovementOpen(false);
     setMovementAmount("");
     setMovementReason("");
   };
 
+  const expectedCash = activeShift ? activeShift.expectedCashUsd ?? activeShift.openingCashUsd : 0;
+  const counted = parseFloat(countedCashUsd);
+  const variance = Number.isNaN(counted) ? null : round2(counted - expectedCash);
+
   return (
-    <div className="flex-1 p-4 sm:p-6 max-w-7xl mx-auto w-full space-y-6">
-      {/* Top Header */}
-      <div>
-        <h2 className="text-2xl font-extrabold text-white tracking-tight">
-          Shift & Cash Register Management
-        </h2>
-        <p className="text-xs text-slate-400 mt-0.5">
-          Open shifts, track cash drawer flow, record payouts, and generate daily End-of-Day Z-Reports
-        </p>
-      </div>
+    <Page>
+      <PageHeader title="Shift & cash drawer" subtitle="Open the register, log cash in/out and close with a Z-report." />
 
-      {/* Active Shift Card or Open Shift Prompt */}
       {!activeShift ? (
-        <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 max-w-xl mx-auto shadow-2xl space-y-5">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-orange-500/20 text-orange-400 flex items-center justify-center">
-              <Layers className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="font-extrabold text-lg text-white">Start New Cashier Shift</h3>
-              <p className="text-xs text-slate-400">Open register float to begin daily operations</p>
-            </div>
-          </div>
-
-          <div className="space-y-3 text-xs">
-            <div className="space-y-1">
-              <label className="font-semibold text-slate-300">Cashier Name</label>
-              <input
-                type="text"
-                value={cashierName}
-                onChange={(e) => setCashierName(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 focus:outline-none focus:border-orange-500"
-              />
-            </div>
-
+        <Card className="mx-auto w-full max-w-xl">
+          <CardHeader icon={<Layers />} title="Open a shift" subtitle="Count the float in the drawer before the first sale." />
+          <CardBody className="flex flex-col gap-4">
+            <Field label="Cashier name">
+              <Input value={cashierName} onChange={(e) => setCashierName(e.target.value)} placeholder="Who is on the register?" leftIcon={<User />} autoComplete="name" enterKeyHint="next" />
+            </Field>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="font-semibold text-slate-300">Opening Float (USD $)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={openingFloatUsd}
-                  onChange={(e) => setOpeningFloatUsd(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 font-mono font-bold focus:outline-none focus:border-orange-500"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="font-semibold text-slate-300">Opening Float (KHR ៛)</label>
-                <input
-                  type="number"
-                  step="1000"
-                  value={openingFloatKhr}
-                  onChange={(e) => setOpeningFloatKhr(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 font-mono font-bold focus:outline-none focus:border-orange-500"
-                />
-              </div>
+              <Field label={`Float (${settings.currency})`}>
+                <Input type="text" inputMode="decimal" value={openingFloatUsd} onChange={(e) => setOpeningFloatUsd(e.target.value.replace(/[^0-9.]/g, ""))} prefix={settings.currency} mono size="lg" />
+              </Field>
+              <Field label="Float (KHR)">
+                <Input type="text" inputMode="numeric" value={openingFloatKhr} onChange={(e) => setOpeningFloatKhr(e.target.value.replace(/\D/g, ""))} prefix="៛" mono size="lg" />
+              </Field>
             </div>
-
-            <button
-              onClick={handleOpenShift}
-              className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-extrabold text-sm shadow-xl shadow-orange-500/20 active:scale-95 transition cursor-pointer mt-2"
-            >
-              Open Register Shift
-            </button>
-          </div>
-        </div>
+            <Button variant="primary" size="xl" fullWidth onClick={openShift} leftIcon={<Play className="h-5 w-5 fill-current" />}>
+              Open shift
+            </Button>
+          </CardBody>
+        </Card>
       ) : (
-        <div className="space-y-5">
-          {/* Active Shift Overview */}
-          <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 shadow-xl space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
-              <div className="flex items-center gap-3">
-                <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-extrabold text-lg text-white">
-                      Active Shift #{activeShift.id}
-                    </h3>
-                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase">
-                      Open
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Cashier: <span className="text-slate-200 font-bold">{activeShift.openedBy}</span> • Started at {formatDateTime(activeShift.openedAt)}
+        <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
+          <div className="flex flex-col gap-4">
+            <Card className="overflow-hidden">
+              <div className="flex flex-wrap items-center gap-3 border-b border-line bg-ok-soft/40 p-4">
+                <span className="relative flex h-3 w-3">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ok opacity-60" />
+                  <span className="relative inline-flex h-3 w-3 rounded-full bg-ok" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-base font-bold text-fg">Shift open · {activeShift.openedBy}</h3>
+                  <p className="text-xs text-fg-muted">
+                    Since {formatTime(activeShift.openedAt)} · {elapsed(activeShift.openedAt)} · #{activeShift.id}
                   </p>
                 </div>
+                <Button variant="danger" size="md" onClick={() => setIsClosing(true)} leftIcon={<LockKeyhole className="h-4 w-4" />}>
+                  Close shift
+                </Button>
+              </div>
+              <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-4 sm:p-4">
+                <StatCard label="Sales" value={money(activeShift.totalSalesUsd || 0, settings.currency)} hint={`${activeShift.totalOrders || 0} orders`} tone="success" icon={<Receipt />} />
+                <StatCard label="Cash sales" value={money(activeShift.cashSalesUsd || 0, settings.currency)} icon={<Banknote />} />
+                <StatCard label="Card" value={money(activeShift.cardSalesUsd || 0, settings.currency)} icon={<CreditCard />} />
+                <StatCard label="KHQR" value={money(activeShift.qrSalesUsd || 0, settings.currency)} icon={<QrCode />} />
+              </div>
+            </Card>
+
+            <Card>
+              <CardHeader
+                icon={<Banknote />}
+                title="Cash drawer"
+                subtitle="Expected cash right now"
+                actions={
+                  <div className="flex gap-2">
+                    <Button
+                      variant="secondary"
+                      size="md"
+                      onClick={() => {
+                        setMovementType("in");
+                        setMovementOpen(true);
+                      }}
+                      leftIcon={<ArrowDownRight className="h-4 w-4 text-ok" />}
+                    >
+                      Cash in
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="md"
+                      onClick={() => {
+                        setMovementType("out");
+                        setMovementOpen(true);
+                      }}
+                      leftIcon={<ArrowUpRight className="h-4 w-4 text-bad" />}
+                    >
+                      Cash out
+                    </Button>
+                  </div>
+                }
+              />
+              <CardBody className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-end justify-between gap-2 rounded-2xl bg-surface-2/60 p-4">
+                <div>
+                  <span className="block text-xs font-bold uppercase tracking-wider text-fg-subtle">Expected in drawer</span>
+                  <span className="num block text-3xl font-extrabold text-fg">{money(expectedCash, settings.currency)}</span>
+                </div>
+                <dl className="grid grid-cols-2 gap-x-4 text-xs text-fg-muted sm:text-sm">
+                  <dt>Opening float</dt>
+                  <dd className="num text-right">{money(activeShift.openingCashUsd, settings.currency)}</dd>
+                  <dt>+ Cash sales</dt>
+                  <dd className="num text-right">{money(activeShift.cashSalesUsd || 0, settings.currency)}</dd>
+                  <dt>± Movements</dt>
+                  <dd className="num text-right">{money(round2(cashMovements.reduce((s, m) => s + (m.type === "in" ? m.amountUsd : -m.amountUsd), 0)), settings.currency)}</dd>
+                  {settings.enableDualCurrency && (
+                    <>
+                      <dt>KHR float</dt>
+                      <dd className="num text-right">{khr(activeShift.openingCashKhr)}</dd>
+                    </>
+                  )}
+                </dl>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setIsCashMovementOpen(true)}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-xs font-semibold text-slate-200 border border-slate-700 transition cursor-pointer"
-                >
-                  <Banknote className="w-4 h-4 text-amber-400" />
-                  <span>Cash In / Payout</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setCountedCashUsd((activeShift.expectedCashUsd || activeShift.openingCashUsd).toFixed(2));
-                    setIsClosingShift(true);
-                  }}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold transition cursor-pointer"
-                >
-                  <span>Close Shift & Z-Report</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Financial Cards Grid */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Opening Float
-                </span>
-                <span className="text-xl font-extrabold font-mono text-white">
-                  {money(activeShift.openingCashUsd, settings.currency)}
-                </span>
-                <p className="text-[10px] font-mono text-slate-500">
-                  {khr(activeShift.openingCashKhr)}
-                </p>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Total Sales ({activeShift.totalOrders || 0} orders)
-                </span>
-                <span className="text-xl font-extrabold font-mono text-emerald-400">
-                  {money(activeShift.totalSalesUsd || 0, settings.currency)}
-                </span>
-                <p className="text-[10px] font-mono text-slate-500">
-                  {khr((activeShift.totalSalesUsd || 0) * settings.exchangeRate)}
-                </p>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Cash Collected
-                </span>
-                <span className="text-xl font-extrabold font-mono text-amber-400">
-                  {money(activeShift.cashSalesUsd || 0, settings.currency)}
-                </span>
-                <p className="text-[10px] text-slate-500">
-                  Card: {money(activeShift.cardSalesUsd || 0)} • QR: {money(activeShift.qrSalesUsd || 0)}
-                </p>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Expected in Drawer
-                </span>
-                <span className="text-xl font-extrabold font-mono text-white">
-                  {money(activeShift.expectedCashUsd || activeShift.openingCashUsd, settings.currency)}
-                </span>
-                <p className="text-[10px] text-slate-500">Float + Cash Sales</p>
-              </div>
-            </div>
-
-            {/* Cash Movements in this shift */}
-            {cashMovements.length > 0 && (
-              <div className="space-y-2 pt-2">
-                <h4 className="font-bold text-xs text-slate-400 uppercase tracking-wider">
-                  Cash In / Payout Logs ({cashMovements.length})
-                </h4>
-                <div className="divide-y divide-slate-800 bg-slate-950 rounded-2xl border border-slate-800 p-3 text-xs">
+              {cashMovements.length > 0 && (
+                <ul className="divide-y divide-line rounded-2xl border border-line">
                   {cashMovements.map((m) => (
-                    <div key={m.id} className="py-2 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        {m.type === "in" ? (
-                          <ArrowDownRight className="w-4 h-4 text-emerald-400" />
-                        ) : (
-                          <ArrowUpRight className="w-4 h-4 text-rose-400" />
-                        )}
-                        <div>
-                          <span className="font-bold text-slate-200">{m.reason}</span>
-                          <span className="text-[10px] text-slate-500 block">
-                            {formatDateTime(m.createdAt)}
-                          </span>
-                        </div>
-                      </div>
-                      <span
-                        className={`font-mono font-bold ${
-                          m.type === "in" ? "text-emerald-400" : "text-rose-400"
-                        }`}
-                      >
-                        {m.type === "in" ? "+" : "-"}
+                    <li key={m.id} className="flex items-center gap-3 px-3 py-2.5">
+                      <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-xl", m.type === "in" ? "bg-ok-soft text-ok" : "bg-bad-soft text-bad")}>
+                        {m.type === "in" ? <ArrowDownRight className="h-4.5 w-4.5" /> : <ArrowUpRight className="h-4.5 w-4.5" />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-fg">{m.reason}</span>
+                        <span className="num block text-xs text-fg-subtle">{formatTime(m.createdAt)}</span>
+                      </span>
+                      <span className={cn("num text-sm font-bold", m.type === "in" ? "text-ok" : "text-bad")}>
+                        {m.type === "in" ? "+" : "−"}
                         {money(m.amountUsd, settings.currency)}
                       </span>
-                    </div>
+                    </li>
                   ))}
-                </div>
-              </div>
-            )}
+                </ul>
+              )}
+              </CardBody>
+            </Card>
           </div>
+
+          <Card className="self-start">
+            <CardHeader icon={<Clock />} title="This shift" />
+            <dl className="flex flex-col gap-2 p-4 text-sm sm:p-5">
+              <Row label="Opened" value={formatDateTime(activeShift.openedAt)} />
+              <Row label="Cashier" value={activeShift.openedBy} />
+              <Row label="Orders" value={String(activeShift.totalOrders || 0)} />
+              <Row label="Refunds" value={money(activeShift.refundsTotalUsd || 0, settings.currency)} tone={activeShift.refundsTotalUsd ? "danger" : undefined} />
+              <Row label="Net sales" value={money(round2((activeShift.totalSalesUsd || 0) - (activeShift.refundsTotalUsd || 0)), settings.currency)} tone="success" />
+            </dl>
+          </Card>
         </div>
       )}
 
-      {/* Past Shifts History */}
-      <div className="space-y-3">
-        <h3 className="font-extrabold text-base text-white">Shift Records & Z-Reports</h3>
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-950/60 text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
-                <tr>
-                  <th className="py-3.5 px-4">Shift ID</th>
-                  <th className="py-3.5 px-4">Opened</th>
-                  <th className="py-3.5 px-4">Closed</th>
-                  <th className="py-3.5 px-4">Cashier</th>
-                  <th className="py-3.5 px-4">Total Orders</th>
-                  <th className="py-3.5 px-4">Total Revenue</th>
-                  <th className="py-3.5 px-4">Status</th>
-                  <th className="py-3.5 px-4 text-center">Z-Report</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 font-medium">
-                {shifts.map((s) => (
-                  <tr key={s.id} className="hover:bg-slate-850/60 transition">
-                    <td className="py-3.5 px-4 font-bold font-mono text-orange-400">
-                      #{s.id}
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-400">{formatDateTime(s.openedAt)}</td>
-                    <td className="py-3.5 px-4 text-slate-400">
-                      {s.closedAt ? formatDateTime(s.closedAt) : "Still open"}
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-200 font-semibold">{s.openedBy}</td>
-                    <td className="py-3.5 px-4 font-mono text-slate-300">{s.totalOrders || 0}</td>
-                    <td className="py-3.5 px-4 font-mono font-bold text-emerald-400">
-                      {money(s.totalSalesUsd || 0, settings.currency)}
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase ${
-                          s.status === "open"
-                            ? "bg-emerald-500/20 text-emerald-300"
-                            : "bg-slate-800 text-slate-400"
-                        }`}
-                      >
-                        {s.status}
+      {/* History */}
+      <section>
+        <h3 className="mb-2 px-1 text-xs font-bold uppercase tracking-wider text-fg-subtle">Previous shifts</h3>
+        {closedShifts.length === 0 ? (
+          <EmptyState icon={<FileText />} title="No closed shifts yet" description="Z-reports for closed shifts will be listed here." className="rounded-3xl border border-line bg-surface py-10" />
+        ) : (
+          <ul className="overflow-hidden rounded-3xl border border-line bg-surface">
+            {closedShifts.map((s) => {
+              const v = round2((s.closingCashUsd || 0) - (s.expectedCashUsd || 0));
+              return (
+                <li key={s.id} className="border-b border-line last:border-b-0">
+                  <button type="button" onClick={() => setReportShift(s)} className="press flex w-full items-center gap-3 px-3 py-3 text-left hover:bg-surface-2 sm:px-4">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-surface-3 text-fg-muted">
+                      <FileText className="h-5 w-5" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-x-2">
+                        <span className="text-sm font-bold text-fg">{formatDateTime(s.openedAt)}</span>
+                        <span className="text-xs text-fg-subtle">→ {s.closedAt ? formatTime(s.closedAt) : "—"}</span>
                       </span>
-                    </td>
-                    <td className="py-3.5 px-4 text-center">
-                      <button
-                        onClick={() => setReportShift(s)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition"
-                      >
-                        <Printer className="w-3 h-3" />
-                        <span>View</span>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      <span className="block truncate text-xs text-fg-muted">
+                        {s.openedBy} · {s.totalOrders || 0} orders
+                      </span>
+                    </span>
+                    <span className="text-right">
+                      <span className="num block text-sm font-extrabold text-fg">{money(s.totalSalesUsd || 0, settings.currency)}</span>
+                      <Badge tone={v === 0 ? "success" : v > 0 ? "info" : "danger"}>{v === 0 ? "Balanced" : v > 0 ? `+${money(v, settings.currency)} over` : `${money(v, settings.currency)} short`}</Badge>
+                    </span>
+                    <ChevronRight className="h-5 w-5 shrink-0 text-fg-subtle" />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      {/* Close shift dialog */}
+      <Modal
+        open={isClosing && !!activeShift}
+        onClose={() => setIsClosing(false)}
+        size="sm"
+        title="Close shift"
+        description="Count the cash in the drawer, then confirm."
+        icon={<LockKeyhole />}
+        footer={
+          <div className="flex gap-2">
+            <Button variant="secondary" size="lg" onClick={() => setIsClosing(false)}>
+              Cancel
+            </Button>
+            <Button variant="danger" size="lg" fullWidth onClick={confirmClose} disabled={countedCashUsd === ""}>
+              Close & print Z-report
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center justify-between rounded-2xl bg-surface-2/60 px-4 py-3">
+            <span className="text-sm text-fg-muted">Expected cash</span>
+            <span className="num text-lg font-extrabold text-fg">{money(expectedCash, settings.currency)}</span>
+          </div>
+          <Field label={`Counted cash (${settings.currency})`} required>
+            <Input type="text" inputMode="decimal" value={countedCashUsd} onChange={(e) => setCountedCashUsd(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" prefix={settings.currency} mono size="lg" autoFocus enterKeyHint="done" />
+          </Field>
+          {variance !== null && (
+            <div className={cn("flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold", variance === 0 ? "bg-ok-soft text-ok" : variance > 0 ? "bg-info-soft text-info" : "bg-bad-soft text-bad")} aria-live="polite">
+              <span>{variance === 0 ? "Drawer balanced" : variance > 0 ? "Over by" : "Short by"}</span>
+              <span className="num">{variance === 0 ? "✓" : money(Math.abs(variance), settings.currency)}</span>
+            </div>
+          )}
+          <Field label="Notes">
+            <Textarea value={closeNotes} onChange={(e) => setCloseNotes(e.target.value)} placeholder="Anything the manager should know?" rows={2} className="min-h-[4rem]" />
+          </Field>
+        </div>
+      </Modal>
+
+      {/* Cash movement dialog */}
+      <Modal
+        open={movementOpen && !!activeShift}
+        onClose={() => setMovementOpen(false)}
+        size="sm"
+        title="Cash movement"
+        description="Record money added to or taken out of the drawer."
+        icon={<Banknote />}
+        footer={
+          <Button variant={movementType === "in" ? "success" : "danger"} size="lg" fullWidth onClick={saveMovement} disabled={!(parseFloat(movementAmount) > 0)}>
+            {movementType === "in" ? "Add to drawer" : "Take from drawer"} {parseFloat(movementAmount) > 0 && money(parseFloat(movementAmount), settings.currency)}
+          </Button>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <Segmented<"in" | "out">
+            fullWidth
+            aria-label="Movement type"
+            value={movementType}
+            onChange={setMovementType}
+            options={[
+              { value: "in", label: "Cash in", icon: <ArrowDownRight />, tone: "success" },
+              { value: "out", label: "Cash out", icon: <ArrowUpRight />, tone: "danger" },
+            ]}
+          />
+          <Field label={`Amount (${settings.currency})`} required>
+            <Input type="text" inputMode="decimal" value={movementAmount} onChange={(e) => setMovementAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" prefix={settings.currency} mono size="lg" autoFocus enterKeyHint="next" />
+          </Field>
+          <Field label="Reason">
+            <Input value={movementReason} onChange={(e) => setMovementReason(e.target.value)} placeholder={movementType === "in" ? "e.g. change from bank" : "e.g. supplier payment, tips"} enterKeyHint="done" onKeyDown={(e) => e.key === "Enter" && saveMovement()} />
+          </Field>
+          <div className="flex flex-wrap gap-1.5">
+            {(movementType === "in" ? ["Change from bank", "Owner top-up", "Correction"] : ["Supplier payment", "Tips payout", "Bank deposit", "Petty cash"]).map((r) => (
+              <button key={r} type="button" onClick={() => setMovementReason(r)} className="press h-9 rounded-full border border-line bg-surface-2 px-3 text-xs font-semibold text-fg-muted hover:text-fg">
+                {r}
+              </button>
+            ))}
           </div>
         </div>
-      </div>
+      </Modal>
 
-      {/* Close Shift Modal */}
-      {isClosingShift && activeShift && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-5 space-y-4 shadow-2xl">
-            <h3 className="font-extrabold text-base text-white">Close Shift #{activeShift.id}</h3>
-            <p className="text-xs text-slate-400">
-              Count the physical cash in the drawer and enter the total below to generate the End of Day Z-Report.
-            </p>
-
-            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-1">
-              <div className="flex justify-between text-slate-400">
-                <span>Expected Drawer Cash:</span>
-                <span className="font-mono font-bold text-white">
-                  {money(activeShift.expectedCashUsd || activeShift.openingCashUsd, settings.currency)}
-                </span>
-              </div>
-            </div>
-
-            <div className="space-y-1 text-xs">
-              <label className="font-semibold text-slate-300">Actual Counted Cash ($) *</label>
-              <input
-                type="number"
-                step="0.01"
-                value={countedCashUsd}
-                onChange={(e) => setCountedCashUsd(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 font-mono font-extrabold text-base focus:outline-none focus:border-orange-500"
-                autoFocus
-              />
-            </div>
-
-            <div className="space-y-1 text-xs">
-              <label className="font-semibold text-slate-300">Shift Notes (Optional)</label>
-              <input
-                type="text"
-                value={closeNotes}
-                onChange={(e) => setCloseNotes(e.target.value)}
-                placeholder="e.g. Cleaned espresso machine, 500 riel shortage..."
-                className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-orange-500"
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={() => setIsClosingShift(false)}
-                className="px-4 py-2 rounded-xl text-slate-400 hover:text-white text-xs font-semibold"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmCloseShift}
-                disabled={!countedCashUsd}
-                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-bold text-xs shadow-lg transition"
-              >
-                Close Shift & Print Z-Report
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Cash In / Out Modal */}
-      {isCashMovementOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-5 space-y-4 shadow-2xl">
-            <h3 className="font-extrabold text-base text-white">Cash Drawer Payout / In</h3>
-
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <button
-                type="button"
-                onClick={() => setMovementType("out")}
-                className={`py-2 px-3 rounded-xl font-bold transition ${
-                  movementType === "out"
-                    ? "bg-rose-500 text-white shadow"
-                    : "bg-slate-950 border border-slate-800 text-slate-400"
-                }`}
-              >
-                Cash Out (Payout)
-              </button>
-              <button
-                type="button"
-                onClick={() => setMovementType("in")}
-                className={`py-2 px-3 rounded-xl font-bold transition ${
-                  movementType === "in"
-                    ? "bg-emerald-500 text-white shadow"
-                    : "bg-slate-950 border border-slate-800 text-slate-400"
-                }`}
-              >
-                Cash In (Deposit)
-              </button>
-            </div>
-
-            <div className="space-y-1 text-xs">
-              <label className="font-semibold text-slate-300">Amount ($) *</label>
-              <input
-                type="number"
-                step="0.01"
-                value={movementAmount}
-                onChange={(e) => setMovementAmount(e.target.value)}
-                placeholder="0.00"
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 font-mono font-bold text-sm focus:outline-none focus:border-orange-500"
-                autoFocus
-              />
-            </div>
-
-            <div className="space-y-1 text-xs">
-              <label className="font-semibold text-slate-300">Reason / Expense Description *</label>
-              <input
-                type="text"
-                value={movementReason}
-                onChange={(e) => setMovementReason(e.target.value)}
-                placeholder="e.g. Bought fresh milk, ice delivery, petty cash..."
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-orange-500"
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={() => setIsCashMovementOpen(false)}
-                className="px-4 py-2 rounded-xl text-slate-400 hover:text-white text-xs font-semibold"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSaveMovement}
-                disabled={!movementAmount || !movementReason.trim()}
-                className="px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold text-xs shadow-md transition"
-              >
-                Save Transaction
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Z-Report Modal */}
-      {reportShift && (
-        <ZReportModal
-          shift={reportShift}
-          onClose={() => setReportShift(null)}
-          settings={settings}
-        />
-      )}
-    </div>
+      <ZReportModal shift={reportShift} onClose={() => setReportShift(null)} settings={settings} />
+    </Page>
   );
 };
+
+const Row: React.FC<{ label: string; value: string; tone?: "success" | "danger" }> = ({ label, value, tone }) => (
+  <div className="flex items-baseline justify-between gap-3 border-b border-line pb-2 last:border-b-0 last:pb-0">
+    <dt className="text-fg-muted">{label}</dt>
+    <dd className={cn("num text-right font-semibold", tone === "success" ? "text-ok" : tone === "danger" ? "text-bad" : "text-fg")}>{value}</dd>
+  </div>
+);

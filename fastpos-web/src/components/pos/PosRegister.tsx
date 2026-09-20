@@ -1,30 +1,12 @@
-import React, { useState, useMemo, useRef, useEffect } from "react";
+import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import {
-  Search,
-  X,
-  Layers,
-  ShoppingBag,
-  ArrowRight,
-  Calculator,
-  Star,
-  Barcode,
-} from "lucide-react";
+import { Search, X, Layers, ShoppingBag, ChevronUp, Calculator, Star, ScanBarcode, PackageSearch } from "lucide-react";
 import confetti from "canvas-confetti";
 import { db } from "@/db";
-import type {
-  MenuItem,
-  CartLine,
-  HeldTicket,
-  Order,
-  OrderItem,
-  StoreSettings,
-  Shift,
-  PaymentMethod,
-} from "@/types";
+import type { MenuItem, CartLine, HeldTicket, Order, OrderItem, StoreSettings, Shift, PaymentMethod } from "@/types";
 import { ItemCard } from "./ItemCard";
 import { ModifierModal } from "./ModifierModal";
-import { CartDrawer } from "./CartDrawer";
+import { CartDrawer, type CheckoutData } from "./CartDrawer";
 import { PaymentModal } from "./PaymentModal";
 import { ReceiptModal } from "./ReceiptModal";
 import { HeldTicketsModal } from "./HeldTicketsModal";
@@ -33,6 +15,9 @@ import { ShortcutsModal } from "./ShortcutsModal";
 import { CategoryIcon } from "@/components/common/CategoryIcon";
 import { playTapSound, playBeepSound } from "@/lib/sounds";
 import { money, round2 } from "@/lib/format";
+import { cn } from "@/lib/cn";
+import { useIsSplit } from "@/lib/media";
+import { Modal, Button, Kbd, EmptyState, useToast } from "@/components/ui";
 
 interface PosRegisterProps {
   settings: StoreSettings;
@@ -52,190 +37,106 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
   setIsShortcutsOpen,
 }) => {
   const activeShopId = settings.activeShopId || 1;
-  const categories = useLiveQuery(
-    () => db.categories.filter((c) => c.isActive && (!c.shopId || c.shopId === activeShopId)).sortBy("sortOrder"),
-    [activeShopId]
-  ) || [];
-  const items = useLiveQuery(
-    () => db.menuItems.filter((i) => i.isActive && (!i.shopId || i.shopId === activeShopId)).toArray(),
-    [activeShopId]
-  ) || [];
-  const heldTickets = useLiveQuery(
-    () => db.heldTickets.filter((h) => !h.shopId || h.shopId === activeShopId).toArray(),
-    [activeShopId]
-  ) || [];
+  const toast = useToast();
+  const isSplit = useIsSplit();
+
+  const categories =
+    useLiveQuery(() => db.categories.filter((c) => c.isActive && (!c.shopId || c.shopId === activeShopId)).sortBy("sortOrder"), [activeShopId]) || [];
+  const items = useLiveQuery(() => db.menuItems.filter((i) => i.isActive && (!i.shopId || i.shopId === activeShopId)).toArray(), [activeShopId]) || [];
+  const heldTickets = useLiveQuery(() => db.heldTickets.filter((h) => !h.shopId || h.shopId === activeShopId).toArray(), [activeShopId]) || [];
 
   const [selectedCatId, setSelectedCatId] = useState<number | null>(null);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [cartLines, setCartLines] = useState<CartLine[]>([]);
+  const [tableName, setTableName] = useState("");
   const [activeItemForMod, setActiveItemForMod] = useState<MenuItem | null>(null);
-  const [isMobileCartOpen, setIsMobileCartOpen] = useState(false);
+  const [isCartSheetOpen, setIsCartSheetOpen] = useState(false);
   const [isKeypadOpen, setIsKeypadOpen] = useState(false);
   const [localShortcutsOpen, setLocalShortcutsOpen] = useState(false);
-
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
-  const showShortcuts = isShortcutsOpen || localShortcutsOpen;
-  const handleCloseShortcuts = () => {
-    if (setIsShortcutsOpen) setIsShortcutsOpen(false);
-    setLocalShortcutsOpen(false);
-  };
-
-  // Payment & Receipt
-  const [checkoutData, setCheckoutData] = useState<{
-    subtotal: number;
-    tax: number;
-    total: number;
-    totalKhr: number;
-    tableName: string;
-  } | null>(null);
-
+  const [checkoutData, setCheckoutData] = useState<CheckoutData | null>(null);
   const [completedOrder, setCompletedOrder] = useState<Order | null>(null);
   const [completedOrderItems, setCompletedOrderItems] = useState<OrderItem[]>([]);
 
-  // Filter items
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const showShortcuts = isShortcutsOpen || localShortcutsOpen;
+  const handleCloseShortcuts = () => {
+    setIsShortcutsOpen?.(false);
+    setLocalShortcutsOpen(false);
+  };
+
+  // Close the cart sheet automatically when the layout switches to split mode
+  useEffect(() => {
+    if (isSplit) setIsCartSheetOpen(false);
+  }, [isSplit]);
+
+  /* ------------------------------ Derived data ------------------------------ */
   const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
     return items.filter((item) => {
-      if (showFavoritesOnly && !item.isFavorite && item.stock <= 5) return false;
+      if (showFavoritesOnly && !item.isFavorite) return false;
       const matchCat = selectedCatId === null || item.categoryId === selectedCatId;
-      const matchSearch =
-        searchQuery.trim() === "" ||
-        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (item.sku && item.sku.toLowerCase().includes(searchQuery.toLowerCase()));
+      const matchSearch = q === "" || item.name.toLowerCase().includes(q) || (item.sku ? item.sku.toLowerCase().includes(q) : false);
       return matchCat && matchSearch;
     });
   }, [items, selectedCatId, searchQuery, showFavoritesOnly]);
 
-  // Cart summary calculations
+  const favoritesCount = useMemo(() => items.filter((i) => i.isFavorite).length, [items]);
+
   const totalCartQty = cartLines.reduce((s, l) => s + l.qty, 0);
   const rawCartSubtotal = cartLines.reduce((sum, line) => {
-    const modTotal = line.modifiers.reduce((mSum, m) => mSum + m.price, 0);
+    const modTotal = line.modifiers.reduce((m, x) => m + x.price, 0);
     return sum + (line.basePrice + modTotal) * line.qty;
   }, 0);
   const cartTax = round2((rawCartSubtotal * settings.taxRate) / 100);
   const cartTotal = round2(rawCartSubtotal + cartTax);
 
-  // Memoized in-cart item counts for zero-error feedback
-  const cartItemCounts = useMemo(() => {
-    return cartLines.reduce((acc, line) => {
-      acc[line.menuItemId] = (acc[line.menuItemId] || 0) + line.qty;
-      return acc;
-    }, {} as Record<number, number>);
-  }, [cartLines]);
+  const cartItemCounts = useMemo(
+    () =>
+      cartLines.reduce(
+        (acc, line) => {
+          acc[line.menuItemId] = (acc[line.menuItemId] || 0) + line.qty;
+          return acc;
+        },
+        {} as Record<number, number>
+      ),
+    [cartLines]
+  );
 
-  // Keyboard Shortcuts Listener
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if user is typing inside an input other than search
-      const target = e.target as HTMLElement;
-      const isInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA";
-
-      if (e.key === "/" && !isInput) {
-        e.preventDefault();
-        searchInputRef.current?.focus();
-        return;
+  /* ------------------------------ Cart mutations ------------------------------ */
+  const addSimpleItem = useCallback((item: MenuItem) => {
+    const key = `${item.id}--`;
+    setCartLines((prev) => {
+      const idx = prev.findIndex((l) => l.key === key);
+      if (idx > -1) {
+        const next = [...prev];
+        next[idx] = { ...next[idx], qty: next[idx].qty + 1 };
+        return next;
       }
+      return [...prev, { key, menuItemId: item.id!, name: item.name, color: item.color, basePrice: item.price, qty: 1, modifiers: [] }];
+    });
+  }, []);
 
-      if (e.key === "?" && !isInput) {
-        e.preventDefault();
-        if (setIsShortcutsOpen) {
-          setIsShortcutsOpen(true);
-        } else {
-          setLocalShortcutsOpen(true);
-        }
-        return;
-      }
-
-      if (e.key === "Escape") {
-        if (showShortcuts) handleCloseShortcuts();
-        if (isKeypadOpen) setIsKeypadOpen(false);
-        if (searchQuery) setSearchQuery("");
-        return;
-      }
-
-      if ((e.key === "F2" || (e.ctrlKey && e.key === "Enter")) && cartLines.length > 0) {
-        e.preventDefault();
-        setCheckoutData({
-          subtotal: rawCartSubtotal,
-          tax: cartTax,
-          total: cartTotal,
-          totalKhr: Math.round(cartTotal * settings.exchangeRate),
-          tableName: "Walk-in",
-        });
-        return;
-      }
-
-      if (e.code === "Space" && !isInput && cartLines.length > 0) {
-        e.preventDefault();
-        handleHoldTicket("Walk-in");
-        return;
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [cartLines, rawCartSubtotal, cartTax, cartTotal, settings.exchangeRate, showShortcuts, isKeypadOpen, searchQuery]);
-
-  // Handle item tap
-  const handleSelectItem = (item: MenuItem) => {
-    playTapSound(settings.soundEnabled);
-    if (item.modifiers && item.modifiers.length > 0) {
-      setActiveItemForMod(item);
-    } else {
-      const key = `${item.id}--`;
-      setCartLines((prev) => {
-        const existingIndex = prev.findIndex((l) => l.key === key);
-        if (existingIndex > -1) {
-          const next = [...prev];
-          next[existingIndex] = {
-            ...next[existingIndex],
-            qty: next[existingIndex].qty + 1,
-          };
-          return next;
-        }
-        return [
-          ...prev,
-          {
-            key,
-            menuItemId: item.id!,
-            name: item.name,
-            color: item.color,
-            basePrice: item.price,
-            qty: 1,
-            modifiers: [],
-          },
-        ];
-      });
-    }
-  };
+  const handleSelectItem = useCallback(
+    (item: MenuItem) => {
+      playTapSound(settings.soundEnabled);
+      if (item.modifiers && item.modifiers.length > 0) setActiveItemForMod(item);
+      else addSimpleItem(item);
+    },
+    [settings.soundEnabled, addSimpleItem]
+  );
 
   const handleAddCustomItem = (amount: number, name: string) => {
     playTapSound(settings.soundEnabled);
-    const key = `custom-${Date.now()}`;
-    setCartLines((prev) => [
-      ...prev,
-      {
-        key,
-        menuItemId: 0,
-        name: name,
-        color: "#0F766E",
-        basePrice: amount,
-        qty: 1,
-        modifiers: [],
-      },
-    ]);
+    setCartLines((prev) => [...prev, { key: `custom-${Date.now()}`, menuItemId: 0, name, color: "#0F766E", basePrice: amount, qty: 1, modifiers: [] }]);
   };
 
   const handleAddCustomizedLine = (line: CartLine) => {
     setCartLines((prev) => {
-      const existingIndex = prev.findIndex((l) => l.key === line.key);
-      if (existingIndex > -1) {
+      const idx = prev.findIndex((l) => l.key === line.key);
+      if (idx > -1) {
         const next = [...prev];
-        next[existingIndex] = {
-          ...next[existingIndex],
-          qty: next[existingIndex].qty + line.qty,
-        };
+        next[idx] = { ...next[idx], qty: next[idx].qty + line.qty };
         return next;
       }
       return [...prev, line];
@@ -245,73 +146,64 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
   const handleUpdateQty = (key: string, delta: number) => {
     setCartLines((prev) =>
       prev
-        .map((l) => {
-          if (l.key === key) {
-            const newQty = l.qty + delta;
-            return newQty > 0 ? { ...l, qty: newQty } : null;
-          }
-          return l;
-        })
-        .filter(Boolean) as CartLine[]
+        .map((l) => (l.key === key ? (l.qty + delta > 0 ? { ...l, qty: l.qty + delta } : null) : l))
+        .filter((l): l is CartLine => l !== null)
     );
   };
-
-  const handleRemoveLine = (key: string) => {
-    setCartLines((prev) => prev.filter((l) => l.key !== key));
-  };
-
-  const handleClearCart = () => {
+  const handleRemoveLine = (key: string) => setCartLines((prev) => prev.filter((l) => l.key !== key));
+  const resetTicket = () => {
     setCartLines([]);
-    setIsMobileCartOpen(false);
+    setTableName("");
+    setIsCartSheetOpen(false);
   };
 
-  const handleHoldTicket = async (tableName: string) => {
+  const handleHoldTicket = async (name: string) => {
     if (cartLines.length === 0) return;
     await db.heldTickets.add({
       shopId: activeShopId,
-      name: tableName,
-      tableNumber: tableName,
+      name,
+      tableNumber: name,
       itemCount: totalCartQty,
       subtotal: round2(rawCartSubtotal),
       lines: cartLines,
       createdAt: new Date(),
     });
-
-    setCartLines([]);
-    setIsMobileCartOpen(false);
+    resetTicket();
     playBeepSound(settings.soundEnabled);
+    toast({ title: "Ticket held", description: `${name} — ${totalCartQty} ${totalCartQty === 1 ? "item" : "items"}`, tone: "info" });
   };
 
   const handleResumeTicket = (ticket: HeldTicket) => {
-    setCartLines(ticket.lines);
+    if (cartLines.length > 0) {
+      // Merge instead of silently discarding the current ticket
+      setCartLines((prev) => [...prev, ...ticket.lines.filter((l) => !prev.some((p) => p.key === l.key))]);
+    } else {
+      setCartLines(ticket.lines);
+    }
+    setTableName(ticket.tableNumber && ticket.tableNumber !== "Ticket" ? ticket.tableNumber : "");
+    if (ticket.id != null) db.heldTickets.delete(ticket.id);
     setIsHeldModalOpen(false);
     playTapSound(settings.soundEnabled);
+    if (!isSplit) setIsCartSheetOpen(true);
   };
 
   const handleDeleteHeldTicket = async (id: number) => {
     await db.heldTickets.delete(id);
   };
 
-  // 1-Tap Quick Cash Checkout (<8s, 2 taps)
-  const handleQuickCashCheckout = async (data: {
-    subtotal: number;
-    tax: number;
-    total: number;
-    totalKhr: number;
-    tableName: string;
-  }) => {
-    playTapSound(settings.soundEnabled);
-    try {
-      confetti({
-        particleCount: 80,
-        spread: 70,
-        origin: { y: 0.6 },
-        colors: ["#0F766E", "#F97316", "#10B981", "#3B82F6"],
-      });
-    } catch {
-      // Confetti fallback
-    }
+  /* ------------------------------ Checkout ------------------------------ */
+  const buildCheckoutData = (): CheckoutData => ({
+    subtotal: round2(rawCartSubtotal),
+    tax: cartTax,
+    total: cartTotal,
+    totalKhr: Math.round(cartTotal * settings.exchangeRate),
+    tableName: tableName.trim() || "Walk-in",
+  });
 
+  const persistOrder = async (
+    data: CheckoutData,
+    details: { paymentMethod: PaymentMethod; cashReceived?: number; changeDue?: number; cashReceivedKhr?: number; changeDueKhr?: number }
+  ) => {
     const totalOrdersCount = await db.orders.count();
     const orderNumber = 1001 + totalOrdersCount;
 
@@ -323,11 +215,11 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
       tax: data.tax,
       total: data.total,
       totalKhr: data.totalKhr,
-      paymentMethod: "cash",
-      cashReceived: data.total,
-      changeDue: 0,
-      cashReceivedKhr: data.totalKhr,
-      changeDueKhr: 0,
+      paymentMethod: details.paymentMethod,
+      cashReceived: details.cashReceived,
+      changeDue: details.changeDue,
+      cashReceivedKhr: details.cashReceivedKhr,
+      changeDueKhr: details.changeDueKhr,
       exchangeRate: settings.exchangeRate,
       itemCount: totalCartQty,
       cashierName: activeShift?.openedBy || "Cashier",
@@ -340,7 +232,7 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
     newOrder.id = orderId;
 
     const orderItemsToInsert: OrderItem[] = cartLines.map((line) => {
-      const modTotal = line.modifiers.reduce((mSum, m) => mSum + m.price, 0);
+      const modTotal = line.modifiers.reduce((m, x) => m + x.price, 0);
       const unitPrice = round2(line.basePrice + modTotal);
       return {
         orderId,
@@ -353,7 +245,6 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
         lineTotal: round2(unitPrice * line.qty),
       };
     });
-
     await db.orderItems.bulkAdd(orderItemsToInsert);
 
     // Stock decrement
@@ -361,137 +252,27 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
       if (line.menuItemId > 0) {
         const product = await db.menuItems.get(line.menuItemId);
         if (product && product.trackStock) {
-          const newStock = Math.max(0, product.stock - line.qty);
-          await db.menuItems.update(product.id!, { stock: newStock });
-          await db.stockMovements.add({
-            itemId: product.id!,
-            delta: -line.qty,
-            reason: "sale",
-            note: `Order #${orderNumber}`,
-            createdAt: new Date(),
-          });
+          await db.menuItems.update(product.id!, { stock: Math.max(0, product.stock - line.qty) });
+          await db.stockMovements.add({ itemId: product.id!, delta: -line.qty, reason: "sale", note: `Order #${orderNumber}`, createdAt: new Date() });
         }
       }
     }
 
-    // Update active shift
-    if (activeShift && activeShift.id) {
+    // Shift totals
+    if (activeShift?.id) {
       const shift = await db.shifts.get(activeShift.id);
       if (shift) {
-        const prevSales = shift.totalSalesUsd || 0;
-        const prevOrders = shift.totalOrders || 0;
-        const prevCash = shift.cashSalesUsd || 0;
-        const prevExpCash = shift.expectedCashUsd || shift.openingCashUsd;
-
-        await db.shifts.update(shift.id!, {
-          totalSalesUsd: round2(prevSales + data.total),
-          totalOrders: prevOrders + 1,
-          cashSalesUsd: round2(prevCash + data.total),
-          expectedCashUsd: round2(prevExpCash + data.total),
-        });
-      }
-    }
-
-    setCompletedOrder(newOrder);
-    setCompletedOrderItems(orderItemsToInsert);
-    setCartLines([]);
-    setIsMobileCartOpen(false);
-  };
-
-  // Full Checkout Handler
-  const handleCompleteOrder = async (details: {
-    paymentMethod: PaymentMethod;
-    cashReceived?: number;
-    changeDue?: number;
-    cashReceivedKhr?: number;
-    changeDueKhr?: number;
-  }) => {
-    if (!checkoutData) return;
-
-    const totalOrdersCount = await db.orders.count();
-    const orderNumber = 1001 + totalOrdersCount;
-
-    const newOrder: Order = {
-      shopId: activeShopId,
-      orderNumber,
-      status: "completed",
-      subtotal: checkoutData.subtotal,
-      tax: checkoutData.tax,
-      total: checkoutData.total,
-      totalKhr: checkoutData.totalKhr,
-      paymentMethod: details.paymentMethod,
-      cashReceived: details.cashReceived,
-      changeDue: details.changeDue,
-      cashReceivedKhr: details.cashReceivedKhr,
-      changeDueKhr: details.changeDueKhr,
-      exchangeRate: settings.exchangeRate,
-      itemCount: totalCartQty,
-      cashierName: activeShift?.openedBy || "Cashier",
-      tableNumber: checkoutData.tableName,
-      shiftId: activeShift?.id,
-      createdAt: new Date(),
-    };
-
-    const orderId = (await db.orders.add(newOrder)) as number;
-    newOrder.id = orderId;
-
-    const orderItemsToInsert: OrderItem[] = cartLines.map((line) => {
-      const modTotal = line.modifiers.reduce((mSum, m) => mSum + m.price, 0);
-      const unitPrice = round2(line.basePrice + modTotal);
-      return {
-        orderId,
-        menuItemId: line.menuItemId,
-        name: line.name,
-        unitPrice,
-        qty: line.qty,
-        modifiers: line.modifiers,
-        note: line.note,
-        lineTotal: round2(unitPrice * line.qty),
-      };
-    });
-
-    await db.orderItems.bulkAdd(orderItemsToInsert);
-
-    // Stock decrement
-    for (const line of cartLines) {
-      if (line.menuItemId > 0) {
-        const product = await db.menuItems.get(line.menuItemId);
-        if (product && product.trackStock) {
-          const newStock = Math.max(0, product.stock - line.qty);
-          await db.menuItems.update(product.id!, { stock: newStock });
-          await db.stockMovements.add({
-            itemId: product.id!,
-            delta: -line.qty,
-            reason: "sale",
-            note: `Order #${orderNumber}`,
-            createdAt: new Date(),
-          });
-        }
-      }
-    }
-
-    // Update active shift
-    if (activeShift && activeShift.id) {
-      const shift = await db.shifts.get(activeShift.id);
-      if (shift) {
-        const prevSales = shift.totalSalesUsd || 0;
-        const prevOrders = shift.totalOrders || 0;
-        const prevCash = shift.cashSalesUsd || 0;
-        const prevCard = shift.cardSalesUsd || 0;
-        const prevQr = shift.qrSalesUsd || 0;
-        const prevExpCash = shift.expectedCashUsd || shift.openingCashUsd;
-
         const isCash = details.paymentMethod === "cash";
         const isCard = details.paymentMethod === "card";
         const isQr = details.paymentMethod === "khqr";
-
+        const prevExpCash = shift.expectedCashUsd || shift.openingCashUsd;
         await db.shifts.update(shift.id!, {
-          totalSalesUsd: round2(prevSales + checkoutData.total),
-          totalOrders: prevOrders + 1,
-          cashSalesUsd: isCash ? round2(prevCash + checkoutData.total) : prevCash,
-          cardSalesUsd: isCard ? round2(prevCard + checkoutData.total) : prevCard,
-          qrSalesUsd: isQr ? round2(prevQr + checkoutData.total) : prevQr,
-          expectedCashUsd: isCash ? round2(prevExpCash + checkoutData.total) : prevExpCash,
+          totalSalesUsd: round2((shift.totalSalesUsd || 0) + data.total),
+          totalOrders: (shift.totalOrders || 0) + 1,
+          cashSalesUsd: isCash ? round2((shift.cashSalesUsd || 0) + data.total) : shift.cashSalesUsd || 0,
+          cardSalesUsd: isCard ? round2((shift.cardSalesUsd || 0) + data.total) : shift.cardSalesUsd || 0,
+          qrSalesUsd: isQr ? round2((shift.qrSalesUsd || 0) + data.total) : shift.qrSalesUsd || 0,
+          expectedCashUsd: isCash ? round2(prevExpCash + data.total) : prevExpCash,
         });
       }
     }
@@ -499,259 +280,337 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
     setCompletedOrder(newOrder);
     setCompletedOrderItems(orderItemsToInsert);
     setCheckoutData(null);
-    setCartLines([]);
-    setIsMobileCartOpen(false);
+    resetTicket();
   };
 
-  const gridColsClass =
-    settings.accessibility?.gridCols === 3
-      ? "grid grid-cols-3 sm:grid-cols-4 xl:grid-cols-5 gap-2"
-      : "grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-2.5";
+  const handleQuickCashCheckout = async (data: CheckoutData) => {
+    playTapSound(settings.soundEnabled);
+    try {
+      confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 }, colors: ["#0F766E", "#F97316", "#10B981", "#3B82F6"] });
+    } catch {
+      // ignore
+    }
+    await persistOrder(data, { paymentMethod: "cash", cashReceived: data.total, changeDue: 0, cashReceivedKhr: data.totalKhr, changeDueKhr: 0 });
+  };
+
+  const handleCompleteOrder = async (details: { paymentMethod: PaymentMethod; cashReceived?: number; changeDue?: number; cashReceivedKhr?: number; changeDueKhr?: number }) => {
+    if (!checkoutData) return;
+    await persistOrder(checkoutData, details);
+  };
+
+  const openCheckout = () => {
+    if (cartLines.length === 0) return;
+    setCheckoutData(buildCheckoutData());
+  };
+
+  /* ------------------------------ Search / barcode ------------------------------ */
+  const handleSearchSubmit = () => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return;
+    const exact = items.find((i) => i.sku && i.sku.toLowerCase() === q);
+    const target = exact || (filteredItems.length === 1 ? filteredItems[0] : undefined);
+    if (!target) {
+      playBeepSound(settings.soundEnabled);
+      toast({ title: "No match", description: `Nothing matches “${searchQuery.trim()}”.`, tone: "warning" });
+      return;
+    }
+    if (target.trackStock && target.stock <= 0) {
+      toast({ title: "Sold out", description: `${target.name} has no stock left.`, tone: "error" });
+      return;
+    }
+    handleSelectItem(target);
+    setSearchQuery("");
+  };
+
+  /* ------------------------------ Keyboard shortcuts ------------------------------ */
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      const isTyping = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable;
+      const anyDialogOpen = !!checkoutData || !!completedOrder || !!activeItemForMod || isKeypadOpen || isHeldModalOpen || showShortcuts;
+
+      if (e.key === "/" && !isTyping && !anyDialogOpen) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+      if (e.key === "?" && !isTyping && !anyDialogOpen) {
+        e.preventDefault();
+        if (setIsShortcutsOpen) setIsShortcutsOpen(true);
+        else setLocalShortcutsOpen(true);
+        return;
+      }
+      if (e.key === "Escape" && !anyDialogOpen) {
+        if (isCartSheetOpen) setIsCartSheetOpen(false);
+        else if (searchQuery) setSearchQuery("");
+        return;
+      }
+      if (anyDialogOpen) return;
+      if ((e.key === "F2" || (e.ctrlKey && e.key === "Enter")) && cartLines.length > 0) {
+        e.preventDefault();
+        openCheckout();
+        return;
+      }
+      if (e.key === "F4" && cartLines.length > 0) {
+        e.preventDefault();
+        void handleHoldTicket(tableName.trim() || "Ticket");
+        return;
+      }
+      if (e.key === "F9") {
+        e.preventDefault();
+        setIsHeldModalOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
+
+  /* ------------------------------ Render ------------------------------ */
+  const density: "comfortable" | "compact" = settings.accessibility?.gridCols === 3 ? "compact" : "comfortable";
+  const gridClass =
+    density === "compact"
+      ? "grid-cols-[repeat(auto-fill,minmax(11.5rem,1fr))] gap-2"
+      : "grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2 sm:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] sm:gap-3";
+
+  const cartPanel = (
+    <CartDrawer
+      lines={cartLines}
+      onUpdateQty={handleUpdateQty}
+      onRemoveLine={handleRemoveLine}
+      onClearCart={resetTicket}
+      onHoldTicket={handleHoldTicket}
+      onOpenPayment={(data) => setCheckoutData(data)}
+      onQuickCashCheckout={handleQuickCashCheckout}
+      settings={settings}
+      variant={isSplit ? "panel" : "sheet"}
+      onClose={() => setIsCartSheetOpen(false)}
+      tableName={tableName}
+      onTableNameChange={setTableName}
+    />
+  );
+
+  const chipBase = "press flex h-10 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-sm font-semibold whitespace-nowrap";
+  const chipOn = "border-brand bg-brand text-white shadow-sm shadow-brand/30";
+  const chipOff = "border-line bg-surface text-fg-muted hover:border-line-strong hover:text-fg";
 
   return (
-    <div className="flex-1 flex flex-col lg:flex-row h-[calc(100vh-3.25rem)] overflow-hidden bg-slate-950">
-      {/* Left Catalog Area (65 - 70%) */}
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        {/* Search & Category Header */}
-        <div className="p-2.5 sm:p-3.5 border-b border-slate-800 bg-slate-900/60 space-y-2.5 shrink-0">
-          {/* High-Contrast Speed Search Bar */}
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden split:flex-row">
+      {/* ------------------------------ Catalog ------------------------------ */}
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Catalog">
+        <div className="shrink-0 space-y-2 border-b border-line bg-surface/70 p-2 backdrop-blur sm:p-3">
           <div className="flex items-center gap-2">
-            <div className="relative flex-1">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-slate-400 pointer-events-none">
-                <Search className="w-4 h-4" />
-                <Barcode className="w-3.5 h-3.5 text-slate-500 hidden sm:inline" />
-              </div>
+            <div className="relative min-w-0 flex-1">
+              <span className="pointer-events-none absolute left-3 top-1/2 flex -translate-y-1/2 items-center gap-1 text-fg-subtle">
+                <Search className="h-4.5 w-4.5" />
+                <ScanBarcode className="hidden h-4 w-4 sm:block" />
+              </span>
               <input
                 ref={searchInputRef}
-                type="text"
+                type="search"
+                inputMode="search"
+                enterKeyHint="go"
+                autoComplete="off"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Scan barcode or search name/SKU... (Press /)"
-                className="w-full pl-9 sm:pl-16 pr-14 py-2 sm:py-2.5 rounded-2xl bg-slate-950 border border-slate-750 text-xs sm:text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition shadow-inner"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleSearchSubmit();
+                  } else if (e.key === "Escape") {
+                    setSearchQuery("");
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+                placeholder="Search or scan barcode"
+                aria-label="Search items or scan barcode"
+                className="h-11 w-full rounded-2xl border border-line bg-surface-2 pl-10 pr-11 text-base text-fg placeholder:text-fg-subtle focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30 sm:pl-16 sm:text-sm [&::-webkit-search-cancel-button]:hidden"
               />
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+              <span className="absolute right-1.5 top-1/2 -translate-y-1/2">
                 {searchQuery ? (
-                  <button
-                    onClick={() => setSearchQuery("")}
-                    className="p-1 rounded-full text-slate-400 hover:text-white"
-                  >
-                    <X className="w-3.5 h-3.5" />
+                  <button type="button" onClick={() => setSearchQuery("")} aria-label="Clear search" className="press flex h-8 w-8 items-center justify-center rounded-full text-fg-muted hover:bg-surface-3 hover:text-fg">
+                    <X className="h-4 w-4" />
                   </button>
                 ) : (
-                  <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-slate-800 rounded border border-slate-700">
-                    /
-                  </kbd>
+                  <Kbd className="hidden sm:inline-flex">/</Kbd>
                 )}
-              </div>
+              </span>
             </div>
-
-            {/* Quick Numeric Keypad button for custom items */}
-            <button
-              onClick={() => setIsKeypadOpen(true)}
-              className="tap-tactile h-9 sm:h-10 px-3 rounded-2xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-teal-400 border border-slate-700 font-bold text-xs flex items-center gap-1.5 shrink-0 transition"
-              title="Custom Price Keypad"
-            >
-              <Calculator className="w-4 h-4" />
-              <span className="hidden sm:inline">Keypad</span>
-            </button>
+            <Button variant="secondary" size="lg" onClick={() => setIsKeypadOpen(true)} data-open-keypad title="Custom amount" aria-label="Custom amount keypad" className="shrink-0 px-3">
+              <Calculator className="h-5 w-5" />
+              <span className="hidden md:inline">Keypad</span>
+            </Button>
           </div>
 
-          {/* Horizontal Category Scroll */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
+          {/* Categories */}
+          <div className="scroll-x -mx-2 flex items-center gap-1.5 px-2 sm:-mx-3 sm:px-3" role="tablist" aria-label="Categories">
             <button
+              type="button"
+              role="tab"
+              aria-selected={selectedCatId === null && !showFavoritesOnly}
               onClick={() => {
                 setSelectedCatId(null);
                 setShowFavoritesOnly(false);
               }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition active:scale-95 ${
-                selectedCatId === null && !showFavoritesOnly
-                  ? "bg-teal-600 text-white shadow-sm shadow-teal-600/30"
-                  : "bg-slate-950 border border-slate-800 text-slate-300 hover:bg-slate-800"
-              }`}
+              className={cn(chipBase, selectedCatId === null && !showFavoritesOnly ? chipOn : chipOff)}
             >
-              All Items ({items.length})
+              <Layers className="h-4 w-4" />
+              All
+              <span className="num opacity-70">{items.length}</span>
             </button>
-
-            {/* ⭐ Top Items Filter */}
-            <button
-              onClick={() => {
-                setShowFavoritesOnly(!showFavoritesOnly);
-                setSelectedCatId(null);
-              }}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition active:scale-95 ${
-                showFavoritesOnly
-                  ? "bg-amber-500 text-white shadow-sm shadow-amber-500/30"
-                  : "bg-slate-950 border border-slate-800 text-amber-400 hover:bg-slate-800"
-              }`}
-            >
-              <Star className="w-3.5 h-3.5 fill-amber-400" />
-              <span>Top Items</span>
-            </button>
-
+            {favoritesCount > 0 && (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={showFavoritesOnly}
+                onClick={() => {
+                  setShowFavoritesOnly((v) => !v);
+                  setSelectedCatId(null);
+                }}
+                className={cn(chipBase, showFavoritesOnly ? "border-amber-400 bg-amber-400 text-slate-950 shadow-sm" : chipOff)}
+              >
+                <Star className={cn("h-4 w-4", showFavoritesOnly && "fill-current")} />
+                Favorites
+              </button>
+            )}
             {categories.map((cat) => {
-              const isSelected = selectedCatId === cat.id && !showFavoritesOnly;
+              const selected = selectedCatId === cat.id && !showFavoritesOnly;
               return (
                 <button
                   key={cat.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
                   onClick={() => {
                     setSelectedCatId(cat.id!);
                     setShowFavoritesOnly(false);
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition active:scale-95 ${
-                    isSelected
-                      ? "text-white shadow-sm"
-                      : "bg-slate-950 border border-slate-800 text-slate-300 hover:bg-slate-800"
-                  }`}
-                  style={{
-                    backgroundColor: isSelected ? cat.color : undefined,
-                  }}
+                  className={cn(chipBase, selected ? chipOn : chipOff)}
+                  style={selected ? { backgroundColor: cat.color, borderColor: cat.color } : undefined}
                 >
-                  <CategoryIcon name={cat.icon} className="w-3 h-3" />
-                  <span>{cat.name}</span>
+                  <CategoryIcon name={cat.icon} className="h-4 w-4" />
+                  {cat.name}
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* 2 or 3 Column Responsive Tactile Item Grid */}
-        <div className="flex-1 overflow-y-auto p-2.5 sm:p-3.5 pb-28 lg:pb-6">
+        {/* Grid */}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 sm:p-3">
           {filteredItems.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500">
-              <Search className="w-8 h-8 mb-2 text-slate-700" />
-              <h4 className="font-bold text-slate-300 text-sm">No items match criteria</h4>
-              <p className="text-[11px] text-slate-500 mt-0.5">Try clearing filters or search term</p>
-            </div>
+            <EmptyState
+              icon={<PackageSearch />}
+              title={searchQuery ? `No results for “${searchQuery}”` : showFavoritesOnly ? "No favorites yet" : "No items in this category"}
+              description={searchQuery ? "Try a different name or SKU." : "Add items from Inventory, or star items to make them favorites."}
+              action={
+                searchQuery || showFavoritesOnly || selectedCatId !== null ? (
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setSearchQuery("");
+                      setShowFavoritesOnly(false);
+                      setSelectedCatId(null);
+                    }}
+                  >
+                    Show all items
+                  </Button>
+                ) : undefined
+              }
+              className="py-16"
+            />
           ) : (
-            <div className={gridColsClass}>
+            <div className={cn("grid", gridClass, !isSplit && cartLines.length > 0 && "pb-2")}>
               {filteredItems.map((item) => (
                 <ItemCard
                   key={item.id}
                   item={item}
-                  cartQty={cartItemCounts[item.id!] || 0}
                   onSelect={handleSelectItem}
                   currency={settings.currency}
                   enableDualCurrency={settings.enableDualCurrency}
                   exchangeRate={settings.exchangeRate}
-                  accessibility={settings.accessibility}
+                  density={density}
+                  cartQty={cartItemCounts[item.id!] || 0}
                 />
               ))}
             </div>
           )}
         </div>
-      </div>
 
-      {/* Desktop Sticky Live Cart Panel (30 - 35%) */}
-      <div className="hidden lg:block w-80 xl:w-96 shrink-0 h-full border-l border-slate-800">
-        <CartDrawer
-          lines={cartLines}
-          onUpdateQty={handleUpdateQty}
-          onRemoveLine={handleRemoveLine}
-          onClearCart={handleClearCart}
-          onHoldTicket={handleHoldTicket}
-          onOpenPayment={(data) => setCheckoutData(data)}
-          onQuickCashCheckout={handleQuickCashCheckout}
-          settings={settings}
-        />
-      </div>
-
-      {/* Floating Bottom Cart Bar for Mobile */}
-      {totalCartQty > 0 && !isMobileCartOpen && (
-        <div className="lg:hidden fixed bottom-16 left-3 right-3 z-30 animate-in fade-in slide-in-from-bottom-3">
-          <button
-            onClick={() => setIsMobileCartOpen(true)}
-            className="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white p-3 rounded-2xl shadow-xl shadow-orange-500/25 flex items-center justify-between font-bold text-xs active:scale-[0.98] transition cursor-pointer"
-          >
-            <div className="flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full bg-black/20 flex items-center justify-center text-[11px] font-extrabold font-mono">
-                {totalCartQty}
+        {/* Ticket summary bar (stacked layouts) */}
+        {!isSplit && (
+          <div className="shrink-0 border-t border-line bg-surface/95 p-2 backdrop-blur-md">
+            <button
+              type="button"
+              data-open-cart
+              onClick={() => setIsCartSheetOpen(true)}
+              aria-label={cartLines.length ? `Open ticket, ${totalCartQty} items, ${money(cartTotal, settings.currency)}` : "Open ticket"}
+              className={cn(
+                "press flex h-12 w-full items-center gap-3 rounded-2xl px-3 text-left shadow-md tall:h-14",
+                cartLines.length > 0 ? "bg-brand text-white shadow-brand/30" : "border border-line bg-surface-2 text-fg-muted shadow-none"
+              )}
+            >
+              <span className={cn("relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl tall:h-10 tall:w-10", cartLines.length > 0 ? "bg-white/15" : "bg-surface-3")}>
+                <ShoppingBag className="h-5 w-5" />
+                {totalCartQty > 0 && (
+                  <span key={totalCartQty} className="anim-bump num absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[0.6875rem] font-extrabold text-brand">
+                    {totalCartQty}
+                  </span>
+                )}
               </span>
-              <span>View Current Order</span>
-            </div>
-
-            <div className="flex items-center gap-1.5 font-mono text-sm font-extrabold">
-              <span>{money(cartTotal, settings.currency)}</span>
-              <ArrowRight className="w-4 h-4" />
-            </div>
-          </button>
-        </div>
-      )}
-
-      {/* Mobile Slide-up Cart Bottom Sheet */}
-      {isMobileCartOpen && (
-        <div className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end bg-slate-950/75 backdrop-blur-sm animate-in fade-in">
-          <div
-            className="flex-1"
-            onClick={() => setIsMobileCartOpen(false)}
-          />
-          <div className="bg-slate-900 border-t border-slate-800 rounded-t-3xl max-h-[85vh] flex flex-col shadow-2xl animate-slide-up">
-            <CartDrawer
-              lines={cartLines}
-              onUpdateQty={handleUpdateQty}
-              onRemoveLine={handleRemoveLine}
-              onClearCart={handleClearCart}
-              onHoldTicket={handleHoldTicket}
-              onOpenPayment={(data) => {
-                setCheckoutData(data);
-                setIsMobileCartOpen(false);
-              }}
-              onQuickCashCheckout={handleQuickCashCheckout}
-              settings={settings}
-              isMobileDrawer={true}
-              onCloseMobileDrawer={() => setIsMobileCartOpen(false)}
-            />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-bold">{cartLines.length > 0 ? "View ticket" : "Ticket is empty"}</span>
+                <span className={cn("block truncate text-xs", cartLines.length > 0 ? "text-white/80" : "text-fg-subtle")}>
+                  {cartLines.length > 0
+                    ? `${totalCartQty} ${totalCartQty === 1 ? "item" : "items"}${tableName ? ` · ${tableName}` : ""}`
+                    : "Tap items to start a sale"}
+                </span>
+              </span>
+              {cartLines.length > 0 && <span className="num text-lg font-extrabold">{money(cartTotal, settings.currency)}</span>}
+              <ChevronUp className="h-5 w-5 shrink-0 opacity-80" />
+            </button>
           </div>
-        </div>
+        )}
+      </section>
+
+      {/* ------------------------------ Docked ticket (split layouts) ------------------------------ */}
+      {isSplit && (
+        <aside className="hidden w-[clamp(18rem,34vw,26rem)] shrink-0 border-l border-line split:flex split:flex-col" aria-label="Current ticket">
+          {cartPanel}
+        </aside>
       )}
 
-      {/* Modals */}
-      <ModifierModal
-        item={activeItemForMod}
-        onClose={() => setActiveItemForMod(null)}
-        onAddToCart={handleAddCustomizedLine}
-        currency={settings.currency}
-      />
+      {/* ------------------------------ Ticket sheet (stacked layouts) ------------------------------ */}
+      {!isSplit && (
+        <Modal
+          open={isCartSheetOpen}
+          onClose={() => setIsCartSheetOpen(false)}
+          size="md"
+          hideHeader
+          bodyClassName="p-0 flex flex-col overflow-hidden"
+          panelClassName="h-[calc(100dvh-2rem)] sheet:h-[calc(100dvh-0.75rem)]"
+          data-testid="cart-sheet"
+        >
+          <div className="flex min-h-0 flex-1 flex-col">{cartPanel}</div>
+        </Modal>
+      )}
 
-      <PaymentModal
-        orderData={checkoutData}
-        onClose={() => setCheckoutData(null)}
-        onCompleteOrder={handleCompleteOrder}
-        settings={settings}
-      />
-
+      {/* ------------------------------ Dialogs ------------------------------ */}
+      <ModifierModal item={activeItemForMod} onClose={() => setActiveItemForMod(null)} onAddToCart={handleAddCustomizedLine} currency={settings.currency} />
+      <PaymentModal orderData={checkoutData} onClose={() => setCheckoutData(null)} onCompleteOrder={handleCompleteOrder} settings={settings} />
       <ReceiptModal
         order={completedOrder}
         orderItems={completedOrderItems}
         onClose={() => setCompletedOrder(null)}
         onNewOrder={() => {
           setCompletedOrder(null);
-          setCompletedOrderItems([]);
-          setCartLines([]);
+          searchInputRef.current?.focus();
         }}
         settings={settings}
       />
-
-      {isHeldModalOpen && (
-        <HeldTicketsModal
-          tickets={heldTickets}
-          onClose={() => setIsHeldModalOpen(false)}
-          onResume={handleResumeTicket}
-          onDelete={handleDeleteHeldTicket}
-          settings={settings}
-        />
-      )}
-
-      <NumericKeypadModal
-        isOpen={isKeypadOpen}
-        onClose={() => setIsKeypadOpen(false)}
-        onAddCustomItem={handleAddCustomItem}
-        currency={settings.currency}
-      />
-
-      <ShortcutsModal
-        isOpen={showShortcuts}
-        onClose={handleCloseShortcuts}
-      />
+      <HeldTicketsModal open={isHeldModalOpen} tickets={heldTickets} onClose={() => setIsHeldModalOpen(false)} onResume={handleResumeTicket} onDelete={handleDeleteHeldTicket} settings={settings} />
+      <NumericKeypadModal isOpen={isKeypadOpen} onClose={() => setIsKeypadOpen(false)} onAddCustomItem={handleAddCustomItem} currency={settings.currency} />
+      <ShortcutsModal isOpen={showShortcuts} onClose={handleCloseShortcuts} />
     </div>
   );
 };

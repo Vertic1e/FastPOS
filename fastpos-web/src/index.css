@@ -1,47 +1,331 @@
 @import "tailwindcss";
+@import "@fontsource-variable/plus-jakarta-sans";
+@import "@fontsource-variable/outfit";
 
+/* ------------------------------------------------------------------
+   Layout-mode variants (px based so they line up with lib/media.ts)
+   - split : side-by-side catalog + ticket (tablet portrait and up)
+   - rail  : left navigation rail (desktop, and short landscape phones)
+   - sheet : dialogs render as bottom sheets (phones / short screens)
+   - short : compact vertical spacing (landscape phones, small hubs)
+   - tall  : enough vertical room for larger media
+------------------------------------------------------------------- */
+@custom-variant split (@media (min-width: 768px) and (min-height: 560px));
+@custom-variant rail {
+  @media (min-width: 1024px) {
+    @slot;
+  }
+  @media (orientation: landscape) and (max-height: 520px) and (max-width: 1023.98px) {
+    @slot;
+  }
+}
+@custom-variant sheet {
+  @media (max-width: 639.98px) {
+    @slot;
+  }
+  @media (max-height: 520px) and (min-width: 640px) {
+    @slot;
+  }
+}
+@custom-variant short (@media (max-height: 520px));
+@custom-variant tall (@media (min-height: 700px));
+@custom-variant pointer-coarse (@media (pointer: coarse));
+
+/* ------------------------------------------------------------------
+   Semantic design tokens (light + dark)
+------------------------------------------------------------------- */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b0f19;
+  --surface: #111827;
+  --surface-2: #1a2332;
+  --surface-3: #263244;
+  --line: rgba(148, 163, 184, 0.14);
+  --line-strong: rgba(148, 163, 184, 0.28);
+  --fg: #f1f5f9;
+  --fg-muted: #a3b1c6;
+  --fg-subtle: #75849c;
+  --brand: #f97316;
+  --brand-hover: #fb8a3c;
+  --brand-text: #fdaa6b;
+  --brand-soft: rgba(249, 115, 22, 0.16);
+  --ok: #34d399;
+  --ok-soft: rgba(16, 185, 129, 0.16);
+  --warn: #fbbf24;
+  --warn-soft: rgba(245, 158, 11, 0.16);
+  --bad: #fb7185;
+  --bad-soft: rgba(244, 63, 94, 0.16);
+  --info: #60a5fa;
+  --info-soft: rgba(59, 130, 246, 0.16);
+  --overlay: rgba(2, 6, 23, 0.72);
+  --shadow: 0 20px 50px -20px rgba(0, 0, 0, 0.7);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f3f5f9;
+  --surface: #ffffff;
+  --surface-2: #eef2f7;
+  --surface-3: #e1e7ef;
+  --line: rgba(15, 23, 42, 0.09);
+  --line-strong: rgba(15, 23, 42, 0.18);
+  --fg: #0f172a;
+  --fg-muted: #4b5a70;
+  --fg-subtle: #6b7a90;
+  --brand: #ea580c;
+  --brand-hover: #f97316;
+  --brand-text: #c2410c;
+  --brand-soft: rgba(234, 88, 12, 0.12);
+  --ok: #047857;
+  --ok-soft: rgba(16, 185, 129, 0.14);
+  --warn: #b45309;
+  --warn-soft: rgba(245, 158, 11, 0.16);
+  --bad: #be123c;
+  --bad-soft: rgba(244, 63, 94, 0.12);
+  --info: #1d4ed8;
+  --info-soft: rgba(59, 130, 246, 0.12);
+  --overlay: rgba(15, 23, 42, 0.45);
+  --shadow: 0 20px 50px -24px rgba(15, 23, 42, 0.35);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-text: var(--brand-text);
+  --color-brand-soft: var(--brand-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-overlay: var(--overlay);
+
+  --font-sans: "Plus Jakarta Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Outfit Variable", "Plus Jakarta Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --shadow-pop: var(--shadow);
+  --radius-card: 1.125rem;
+}
+
+/* ------------------------------------------------------------------
+   Base
+------------------------------------------------------------------- */
 @layer base {
+  html {
+    /* Accessibility font scale is applied on <html> by lib/theme.ts */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    height: 100%;
+  }
+
   * {
-    border-color: rgba(255, 255, 255, 0.1);
+    border-color: var(--line);
   }
 
   body {
-    background-color: #0b0f19;
-    color: #f1f5f9;
-    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    margin: 0;
+    height: 100%;
+    background-color: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01";
     -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior-y: none;
   }
 
-  h1,
-  h2,
-  h3,
-  h4,
-  h5,
-  h6 {
-    font-family: 'Outfit', sans-serif;
+  #root {
+    height: 100%;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+
+  button, [role="button"], a, input, select, textarea, label {
+    touch-action: manipulation; /* no 300ms delay, no double-tap zoom */
+  }
+
+  button {
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  input, select, textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  /* 16px inputs prevent iOS Safari from auto-zooming on focus */
+  input, select, textarea {
+    font-size: max(1rem, 16px);
+  }
+
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+    border-radius: 0.5rem;
+  }
+
+  ::selection {
+    background: var(--brand);
+    color: #fff;
+  }
+
+  img {
+    -webkit-user-drag: none;
+    user-select: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* ------------------------------------------------------------------
+   Utilities
+------------------------------------------------------------------- */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
-::-webkit-scrollbar-track {
-  background: #0f172a;
+@utility num {
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: -0.01em;
 }
 
-::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 9999px;
+@utility press {
+  transition: transform 120ms ease, background-color 120ms ease, border-color 120ms ease, opacity 120ms ease;
+  &:active {
+    transform: scale(0.97);
+  }
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+@utility pt-safe { padding-top: env(safe-area-inset-top, 0px); }
+@utility pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+@utility pl-safe { padding-left: env(safe-area-inset-left, 0px); }
+@utility pr-safe { padding-right: env(safe-area-inset-right, 0px); }
+@utility px-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }
 
-/* Thermal Receipt Print Styles */
+@utility scroll-x {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+  & > * {
+    scroll-snap-align: start;
+  }
+}
+
+/* Thin scrollbars on pointer devices */
+@media (pointer: fine) {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--line-strong);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--fg-subtle);
+    background-clip: padding-box;
+    border: 2px solid transparent;
+  }
+}
+
+/* ------------------------------------------------------------------
+   Motion
+------------------------------------------------------------------- */
+@keyframes fp-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes fp-slide-up {
+  from { transform: translateY(24px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@keyframes fp-sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes fp-pop {
+  from { transform: scale(0.96); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+@keyframes fp-toast-in {
+  from { transform: translateY(-12px) scale(0.98); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+@keyframes fp-bump {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+
+@utility anim-fade-in { animation: fp-fade-in 160ms ease-out both; }
+@utility anim-slide-up { animation: fp-slide-up 220ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+@utility anim-sheet-up { animation: fp-sheet-up 260ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+@utility anim-pop { animation: fp-pop 180ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+@utility anim-toast-in { animation: fp-toast-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+@utility anim-bump { animation: fp-bump 320ms ease-out; }
+
+/* ------------------------------------------------------------------
+   Thermal receipt print styles (80mm / 58mm)
+------------------------------------------------------------------- */
 @media print {
   body * {
     visibility: hidden;
@@ -61,57 +345,15 @@
     padding: 2mm 0;
     color: #000;
     background: #fff;
-    font-family: 'Courier New', Courier, monospace;
+    font-family: "Courier New", Courier, monospace;
     font-size: 11px;
     line-height: 1.3;
+    box-shadow: none;
+    border-radius: 0;
   }
 
   @page {
     size: 80mm auto;
     margin: 0mm;
   }
-}
-
-/* Mobile safe area support */
-.pb-safe {
-  padding-bottom: env(safe-area-inset-bottom, 16px);
-}
-
-.pt-safe {
-  padding-top: env(safe-area-inset-top, 0px);
-}
-
-/* Bottom sheet slide-up animation */
-@keyframes slideUp {
-  from {
-    transform: translateY(100%);
-    opacity: 0.9;
-  }
-
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
-.animate-slide-up {
-  animation: slideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-/* Glassmorphism helpers */
-.glass-panel {
-  background: rgba(15, 23, 42, 0.85);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.glass-card {
-  background: rgba(30, 41, 59, 0.5);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-/* Touch active scale effect */
-.btn-press:active {
-  transform: scale(0.96);
 }

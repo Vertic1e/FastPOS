@@ -1,18 +1,19 @@
 import React, { useState } from "react";
-import {
-  Trash2,
-  Plus,
-  Minus,
-  PauseCircle,
-  Tag,
-  ArrowRight,
-  ShoppingBag,
-  X,
-  Hash,
-  Zap,
-} from "lucide-react";
+import { Trash2, PauseCircle, Tag, ArrowRight, ShoppingBag, X, Hash, Zap, ChevronDown } from "lucide-react";
 import type { CartLine, StoreSettings } from "@/types";
 import { money, khr, round2 } from "@/lib/format";
+import { cn } from "@/lib/cn";
+import { Button, Input, Stepper, EmptyState } from "@/components/ui";
+
+export interface CheckoutData {
+  subtotal: number;
+  tax: number;
+  total: number;
+  totalKhr: number;
+  tableName: string;
+  discountPercent?: number;
+  discountAmount?: number;
+}
 
 interface CartDrawerProps {
   lines: CartLine[];
@@ -20,12 +21,17 @@ interface CartDrawerProps {
   onRemoveLine: (key: string) => void;
   onClearCart: () => void;
   onHoldTicket: (tableName: string) => void;
-  onOpenPayment: (data: { subtotal: number; tax: number; total: number; totalKhr: number; tableName: string }) => void;
-  onQuickCashCheckout?: (data: { subtotal: number; tax: number; total: number; totalKhr: number; tableName: string }) => void;
+  onOpenPayment: (data: CheckoutData) => void;
+  onQuickCashCheckout?: (data: CheckoutData) => void;
   settings: StoreSettings;
-  isMobileDrawer?: boolean;
-  onCloseMobileDrawer?: () => void;
+  /** "sheet" = mobile bottom sheet with a close button; "panel" = docked side panel. */
+  variant?: "panel" | "sheet";
+  onClose?: () => void;
+  tableName: string;
+  onTableNameChange: (v: string) => void;
 }
+
+const DISCOUNTS = [0, 5, 10, 15, 20, 50];
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({
   lines,
@@ -36,308 +42,210 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onOpenPayment,
   onQuickCashCheckout,
   settings,
-  isMobileDrawer = false,
-  onCloseMobileDrawer,
+  variant = "panel",
+  onClose,
+  tableName,
+  onTableNameChange,
 }) => {
-  const [tableName, setTableName] = useState("Table 1");
   const [discountPercent, setDiscountPercent] = useState<number>(0);
-  const [showDiscountInput, setShowDiscountInput] = useState(false);
+  const [showDiscount, setShowDiscount] = useState(false);
 
-  // Line calculations
   const rawSubtotal = lines.reduce((sum, line) => {
-    const modTotal = line.modifiers.reduce((mSum, m) => mSum + m.price, 0);
-    const lineUnitPrice = line.basePrice + modTotal;
-    return sum + lineUnitPrice * line.qty;
+    const modTotal = line.modifiers.reduce((m, x) => m + x.price, 0);
+    return sum + (line.basePrice + modTotal) * line.qty;
   }, 0);
-
   const discountAmount = round2((rawSubtotal * discountPercent) / 100);
   const subtotalAfterDiscount = Math.max(0, round2(rawSubtotal - discountAmount));
   const taxAmount = round2((subtotalAfterDiscount * settings.taxRate) / 100);
   const grandTotal = round2(subtotalAfterDiscount + taxAmount);
   const grandTotalKhr = Math.round(grandTotal * settings.exchangeRate);
-  const totalItemCount = lines.reduce((sum, l) => sum + l.qty, 0);
+  const totalItemCount = lines.reduce((s, l) => s + l.qty, 0);
 
-  const handleCharge = () => {
-    if (lines.length === 0) return;
-    onOpenPayment({
-      subtotal: subtotalAfterDiscount,
-      tax: taxAmount,
-      total: grandTotal,
-      totalKhr: grandTotalKhr,
-      tableName: tableName.trim() || "Walk-in",
-    });
-  };
+  const buildData = (): CheckoutData => ({
+    subtotal: subtotalAfterDiscount,
+    tax: taxAmount,
+    total: grandTotal,
+    totalKhr: grandTotalKhr,
+    tableName: tableName.trim() || "Walk-in",
+    discountPercent,
+    discountAmount,
+  });
 
+  const handleCharge = () => lines.length > 0 && onOpenPayment(buildData());
   const handleQuickCash = () => {
     if (lines.length === 0) return;
-    const orderInfo = {
-      subtotal: subtotalAfterDiscount,
-      tax: taxAmount,
-      total: grandTotal,
-      totalKhr: grandTotalKhr,
-      tableName: tableName.trim() || "Walk-in",
-    };
-    if (onQuickCashCheckout) {
-      onQuickCashCheckout(orderInfo);
-    } else {
-      onOpenPayment(orderInfo);
-    }
+    const data = buildData();
+    if (onQuickCashCheckout) onQuickCashCheckout(data);
+    else onOpenPayment(data);
   };
-
   const handleHold = () => {
     if (lines.length === 0) return;
     onHoldTicket(tableName.trim() || "Ticket");
-    if (onCloseMobileDrawer) onCloseMobileDrawer();
+    onClose?.();
   };
 
+  const isSheet = variant === "sheet";
+
   return (
-    <div className="flex flex-col h-full bg-slate-900 border-slate-800 select-none">
-      {/* Mobile drag handle */}
-      {isMobileDrawer && (
-        <div className="pt-2.5 pb-1 flex justify-center">
-          <div className="w-12 h-1.5 rounded-full bg-slate-700" />
-        </div>
-      )}
-
-      {/* Cart Header */}
-      <div className="p-3.5 border-b border-slate-800 bg-slate-950/40">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <h3 className="font-extrabold text-sm text-white">Current Ticket</h3>
-            <span className="text-[11px] font-bold text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded-full">
-              {totalItemCount} {totalItemCount === 1 ? "item" : "items"}
-            </span>
+    <div className="flex h-full min-h-0 flex-col bg-surface">
+      {/* Header */}
+      <div className="shrink-0 border-b border-line px-3 pb-3 pt-2 sm:px-4">
+        {isSheet && (
+          <div className="mb-1 flex justify-center" aria-hidden>
+            <span className="h-1.5 w-10 rounded-full bg-line-strong" />
           </div>
-
-          <div className="flex items-center gap-1">
+        )}
+        <div className="flex items-center gap-2">
+          <h3 className="shrink-0 whitespace-nowrap text-base font-bold text-fg">Ticket</h3>
+          <span className="num shrink-0 whitespace-nowrap rounded-full bg-surface-3 px-2 py-0.5 text-xs font-bold text-fg-muted">
+            {totalItemCount} {totalItemCount === 1 ? "item" : "items"}
+          </span>
+          <div className="ml-auto flex min-w-0 items-center gap-1">
             {lines.length > 0 && (
               <>
-                <button
-                  onClick={handleHold}
-                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/25 active:scale-95 transition"
-                >
-                  <PauseCircle className="w-3.5 h-3.5" />
-                  <span>Hold</span>
-                </button>
-                <button
-                  onClick={onClearCart}
-                  className="p-1 rounded-lg text-slate-400 hover:text-rose-400 active:scale-95 transition"
-                  title="Clear Order"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <Button size="sm" variant="ghost" className="text-warn hover:bg-warn-soft" leftIcon={<PauseCircle className="h-4 w-4" />} onClick={handleHold} title="Park this ticket (F4)" aria-label="Hold ticket">
+                  Hold
+                </Button>
+                <Button size="sm" variant="ghost" iconOnly aria-label="Clear ticket" className="hover:bg-bad-soft hover:text-bad" onClick={onClearCart}>
+                  <Trash2 className="h-4.5 w-4.5" />
+                </Button>
               </>
             )}
-
-            {isMobileDrawer && onCloseMobileDrawer && (
-              <button
-                onClick={onCloseMobileDrawer}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white bg-slate-800 ml-1"
-              >
-                <X className="w-4 h-4" />
-              </button>
+            {isSheet && onClose && (
+              <Button size="sm" variant="ghost" iconOnly aria-label="Close ticket" onClick={onClose}>
+                <X className="h-5 w-5" />
+              </Button>
             )}
           </div>
         </div>
-
-        {/* Table / Customer name */}
-        <div className="relative">
-          <input
-            type="text"
+        <div className="mt-2">
+          <Input
             value={tableName}
-            onChange={(e) => setTableName(e.target.value)}
-            placeholder="Table # or Customer name..."
-            className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-orange-500"
+            onChange={(e) => onTableNameChange(e.target.value)}
+            placeholder="Table # or customer name"
+            leftIcon={<Hash />}
+            enterKeyHint="done"
+            className="h-10"
+            aria-label="Table or customer name"
           />
-          <Hash className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
         </div>
       </div>
 
-      {/* Cart Lines List */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2 max-h-[45vh] lg:max-h-none">
+      {/* Lines */}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2.5 sm:p-3">
         {lines.length === 0 ? (
-          <div className="py-12 flex flex-col items-center justify-center text-center text-slate-500">
-            <ShoppingBag className="w-10 h-10 mb-2 text-slate-700" />
-            <p className="font-bold text-xs text-slate-400">Your order is empty</p>
-            <p className="text-[11px] text-slate-600 mt-0.5">Tap menu items to ring up</p>
-          </div>
+          <EmptyState icon={<ShoppingBag />} title="Ticket is empty" description="Tap items in the catalog to add them here." className="py-10" />
         ) : (
-          lines.map((line) => {
-            const modTotal = line.modifiers.reduce((sum, m) => sum + m.price, 0);
-            const lineUnitPrice = round2(line.basePrice + modTotal);
-            const lineTotal = round2(lineUnitPrice * line.qty);
-
-            return (
-              <div
-                key={line.key}
-                className="p-2.5 rounded-2xl bg-slate-950 border border-slate-800/80"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <h5 className="font-bold text-xs text-slate-100 truncate">{line.name}</h5>
-                    <span className="text-[10px] font-mono text-slate-400">
-                      {money(lineUnitPrice, settings.currency)} ea
-                    </span>
-
-                    {/* Modifiers */}
-                    {line.modifiers.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {line.modifiers.map((m) => (
-                          <span
-                            key={`${m.group}-${m.option}`}
-                            className="text-[9px] bg-slate-800 text-slate-300 px-1 py-0.2 rounded"
-                          >
-                            {m.option}
-                            {m.price > 0 && ` (+${money(m.price, settings.currency)})`}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Note */}
-                    {line.note && (
-                      <p className="text-[9px] text-amber-400 italic mt-0.5">
-                        * {line.note}
-                      </p>
-                    )}
+          <ul className="flex flex-col gap-2">
+            {lines.map((line) => {
+              const modTotal = line.modifiers.reduce((s, m) => s + m.price, 0);
+              const unit = round2(line.basePrice + modTotal);
+              const lineTotal = round2(unit * line.qty);
+              return (
+                <li key={line.key} className="rounded-2xl border border-line bg-surface-2/50 p-2.5">
+                  <div className="flex items-start gap-2">
+                    <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: line.color || "#f97316" }} aria-hidden />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold leading-snug text-fg">{line.name}</p>
+                      <p className="num text-xs text-fg-subtle">{money(unit, settings.currency)} each</p>
+                      {line.modifiers.length > 0 && (
+                        <p className="mt-1 flex flex-wrap gap-1">
+                          {line.modifiers.map((m) => (
+                            <span key={`${m.group}-${m.option}`} className="rounded-md bg-surface-3 px-1.5 py-0.5 text-[0.6875rem] font-medium text-fg-muted">
+                              {m.option}
+                              {m.price > 0 && <span className="num"> +{money(m.price, settings.currency)}</span>}
+                            </span>
+                          ))}
+                        </p>
+                      )}
+                      {line.note && <p className="mt-1 text-xs italic text-warn">“{line.note}”</p>}
+                    </div>
+                    <span className="num shrink-0 text-sm font-bold text-fg">{money(lineTotal, settings.currency)}</span>
                   </div>
-
-                  <span className="font-mono font-bold text-xs text-emerald-400">
-                    {money(lineTotal, settings.currency)}
-                  </span>
-                </div>
-
-                {/* Bottom row: Delete and Touch-friendly Quantity */}
-                <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-slate-800">
-                  <button
-                    onClick={() => onRemoveLine(line.key)}
-                    className="p-1.5 -ml-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 active:scale-90 transition flex items-center gap-1 text-xs font-semibold"
-                    title="Remove item"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span className="text-[11px]">Remove</span>
-                  </button>
-
-                  <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700/80 rounded-xl p-0.5 shadow-inner">
+                  <div className="mt-2 flex items-center justify-between gap-2">
                     <button
-                      onClick={() => onUpdateQty(line.key, -1)}
-                      className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-200 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 active:scale-90 tap-tactile transition"
-                      aria-label="Decrease quantity"
+                      type="button"
+                      onClick={() => onRemoveLine(line.key)}
+                      className="press flex h-10 items-center gap-1.5 rounded-xl px-2 text-xs font-semibold text-fg-subtle hover:bg-bad-soft hover:text-bad"
+                      aria-label={`Remove ${line.name}`}
                     >
-                      <Minus className="w-3.5 h-3.5 stroke-[2.5]" />
+                      <Trash2 className="h-4 w-4" />
+                      Remove
                     </button>
-                    <span className="text-xs sm:text-sm font-extrabold font-mono tabular-nums text-white w-6 text-center">
-                      {line.qty}
-                    </span>
-                    <button
-                      onClick={() => onUpdateQty(line.key, 1)}
-                      className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-200 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 active:scale-90 tap-tactile transition"
-                      aria-label="Increase quantity"
-                    >
-                      <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                    </button>
+                    <Stepper value={line.qty} onChange={(d) => onUpdateQty(line.key, d)} min={0} label={`Quantity for ${line.name}`} />
                   </div>
-                </div>
-              </div>
-            );
-          })
+                </li>
+              );
+            })}
+          </ul>
         )}
       </div>
 
-      {/* Cart Summary & Sticky Checkout */}
+      {/* Summary + checkout */}
       {lines.length > 0 && (
-        <div className="p-3.5 border-t border-slate-800 bg-slate-950/90 space-y-2.5 pb-safe">
-          {/* Quick Discount Toggle */}
-          <div className="flex items-center justify-between text-xs">
+        <div className={cn("shrink-0 border-t border-line bg-surface-2/40 px-3 pt-2.5 sm:px-4", isSheet ? "pb-[max(0.75rem,env(safe-area-inset-bottom))]" : "pb-3 pb-safe")}>
+          <div className="flex items-center justify-between text-sm">
             <button
-              onClick={() => setShowDiscountInput(!showDiscountInput)}
-              className="flex items-center gap-1 text-slate-400 hover:text-orange-400 font-semibold"
+              type="button"
+              onClick={() => setShowDiscount((v) => !v)}
+              className="press -ml-2 flex h-9 items-center gap-1.5 rounded-lg px-2 font-semibold text-fg-muted hover:bg-surface-3 hover:text-fg"
+              aria-expanded={showDiscount}
             >
-              <Tag className="w-3 h-3" />
-              <span>{discountPercent > 0 ? `${discountPercent}% off` : "Discount"}</span>
+              <Tag className="h-4 w-4" />
+              {discountPercent > 0 ? `${discountPercent}% discount` : "Add discount"}
+              <ChevronDown className={cn("h-3.5 w-3.5 transition", showDiscount && "rotate-180")} />
             </button>
-            {discountPercent > 0 && (
-              <span className="text-rose-400 font-bold font-mono">
-                -{money(discountAmount, settings.currency)}
-              </span>
-            )}
+            {discountPercent > 0 && <span className="num font-bold text-bad">-{money(discountAmount, settings.currency)}</span>}
           </div>
 
-          {showDiscountInput && (
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-900 border border-slate-800">
-              {[0, 5, 10, 15, 20].map((rate) => (
+          {showDiscount && (
+            <div className="anim-fade-in mb-2 grid grid-cols-6 gap-1 rounded-xl border border-line bg-surface p-1">
+              {DISCOUNTS.map((rate) => (
                 <button
                   key={rate}
-                  onClick={() => {
-                    setDiscountPercent(rate);
-                    if (rate === 0) setShowDiscountInput(false);
-                  }}
-                  className={`flex-1 py-1 rounded-lg text-xs font-bold transition ${discountPercent === rate
-                      ? "bg-orange-500 text-white"
-                      : "bg-slate-800 text-slate-400"
-                    }`}
+                  type="button"
+                  onClick={() => setDiscountPercent(rate)}
+                  className={cn(
+                    "press h-9 rounded-lg text-xs font-bold",
+                    discountPercent === rate ? "bg-brand text-white" : "text-fg-muted hover:bg-surface-2"
+                  )}
                 >
-                  {rate === 0 ? "Off" : `${rate}%`}
+                  {rate === 0 ? "None" : `${rate}%`}
                 </button>
               ))}
             </div>
           )}
 
-          {/* Subtotal & Tax */}
-          <div className="space-y-0.5 text-xs text-slate-400">
+          <dl className="space-y-0.5 text-sm text-fg-muted">
             <div className="flex justify-between">
-              <span>Subtotal</span>
-              <span className="font-mono text-slate-300">
-                {money(subtotalAfterDiscount, settings.currency)}
-              </span>
+              <dt>Subtotal</dt>
+              <dd className="num">{money(subtotalAfterDiscount, settings.currency)}</dd>
             </div>
             {settings.taxRate > 0 && (
               <div className="flex justify-between">
-                <span>Tax ({settings.taxRate}%)</span>
-                <span className="font-mono text-slate-300">
-                  {money(taxAmount, settings.currency)}
-                </span>
+                <dt>Tax ({settings.taxRate}%)</dt>
+                <dd className="num">{money(taxAmount, settings.currency)}</dd>
               </div>
             )}
-          </div>
+          </dl>
 
-          {/* Total & Charge Button */}
-          <div className="pt-1.5 border-t border-slate-800 flex items-center justify-between">
+          <div className="mt-1.5 flex items-end justify-between border-t border-line pt-2">
             <div>
-              <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                Total Due
-              </span>
-              {settings.enableDualCurrency && (
-                <span className="text-[11px] font-bold text-amber-400 font-mono">
-                  {khr(grandTotalKhr)}
-                </span>
-              )}
+              <span className="block text-xs font-bold uppercase tracking-wide text-fg-subtle">Total due</span>
+              {settings.enableDualCurrency && <span className="num text-sm font-semibold text-warn">{khr(grandTotalKhr)}</span>}
             </div>
-            <span className="text-xl font-extrabold text-white font-mono">
-              {money(grandTotal, settings.currency)}
-            </span>
+            <span className="num text-2xl font-extrabold text-fg sm:text-[1.75rem]">{money(grandTotal, settings.currency)}</span>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <button
-              type="button"
-              onClick={handleQuickCash}
-              className="tap-tactile py-3.5 px-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.97] text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-600/25 transition cursor-pointer"
-              title="1-Tap Instant Exact Cash Sale"
-            >
-              <Zap className="w-4 h-4 text-amber-300 fill-amber-300 shrink-0" />
-              <span className="truncate">⚡ Quick Cash</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleCharge}
-              className="tap-tactile py-3.5 px-3 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 active:scale-[0.97] text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-lg shadow-orange-500/25 transition cursor-pointer"
-              title="Payment Options (F2)"
-            >
-              <span className="truncate">Pay & More</span>
-              <ArrowRight className="w-4 h-4 shrink-0" />
-            </button>
+          <div className="mt-2.5 grid grid-cols-2 gap-2">
+            <Button variant="success" size="xl" onClick={handleQuickCash} title="Exact cash — completes the sale in one tap" className="px-3">
+              <Zap className="h-5 w-5 shrink-0 fill-amber-300 text-amber-300" />
+              <span className="truncate">Cash exact</span>
+            </Button>
+            <Button variant="primary" size="xl" onClick={handleCharge} title="Choose payment method (F2)" className="px-3">
+              <span className="truncate">Pay</span>
+              <ArrowRight className="h-5 w-5 shrink-0" />
+            </Button>
           </div>
         </div>
       )}

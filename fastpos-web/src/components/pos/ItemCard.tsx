@@ -1,7 +1,8 @@
 import React from "react";
-import { SlidersHorizontal, AlertTriangle, Image as ImageIcon } from "lucide-react";
-import type { MenuItem, AccessibilitySettings } from "@/types";
+import { SlidersHorizontal, AlertTriangle, Star } from "lucide-react";
+import type { MenuItem } from "@/types";
 import { money, khr } from "@/lib/format";
+import { cn } from "@/lib/cn";
 
 interface ItemCardProps {
   item: MenuItem;
@@ -9,128 +10,142 @@ interface ItemCardProps {
   currency: string;
   enableDualCurrency: boolean;
   exchangeRate: number;
-  accessibility?: AccessibilitySettings;
+  /** "comfortable" shows photos and larger targets; "compact" fits more per row. */
+  density: "comfortable" | "compact";
   cartQty?: number;
 }
 
-export const ItemCard: React.FC<ItemCardProps> = ({
+export const ItemCard: React.FC<ItemCardProps> = React.memo(function ItemCard({
   item,
   onSelect,
   currency,
   enableDualCurrency,
   exchangeRate,
-  accessibility = { gridCols: 2, fontSize: "normal" },
+  density,
   cartQty = 0,
-}) => {
+}) {
   const isOutOfStock = item.trackStock && item.stock <= 0;
   const isLowStock = item.trackStock && item.stock > 0 && item.stock <= item.lowStockAt;
   const hasModifiers = item.modifiers && item.modifiers.length > 0;
   const khrPrice = item.price * exchangeRate;
+  const compact = density === "compact";
+  const accent = item.color || "#f97316";
 
-  // Accessibility font scaling
-  const titleSizeClass =
-    accessibility.fontSize === "xlarge"
-      ? "text-base font-extrabold"
-      : accessibility.fontSize === "large"
-        ? "text-sm font-bold"
-        : "text-xs sm:text-sm font-bold";
+  const badges = (
+    <>
+      {hasModifiers && (
+        <span
+          className="flex h-6 items-center gap-0.5 rounded-md bg-surface-2/90 px-1.5 text-[0.6875rem] font-bold text-brand-text ring-1 ring-line backdrop-blur"
+          title="Has options"
+        >
+          <SlidersHorizontal className="h-3 w-3" />
+          <span className={compact ? "sr-only" : ""}>Options</span>
+        </span>
+      )}
+      {isLowStock && (
+        <span className="flex h-6 items-center gap-0.5 rounded-md bg-warn-soft px-1.5 text-[0.6875rem] font-bold text-warn ring-1 ring-warn/30" title="Low stock">
+          <AlertTriangle className="h-3 w-3" />
+          {item.stock}
+        </span>
+      )}
+    </>
+  );
 
-  const priceSizeClass =
-    accessibility.fontSize === "xlarge"
-      ? "text-lg font-extrabold"
-      : accessibility.fontSize === "large"
-        ? "text-base font-extrabold"
-        : "text-sm sm:text-base font-extrabold";
+  const qtyBadge = cartQty > 0 && (
+    <span
+      key={cartQty}
+      className="anim-bump num absolute -right-1.5 -top-1.5 z-10 flex h-7 min-w-7 items-center justify-center rounded-full bg-brand px-1.5 text-sm font-extrabold text-white shadow-md shadow-brand/40 ring-2 ring-surface"
+      aria-label={`${cartQty} in ticket`}
+    >
+      {cartQty}
+    </span>
+  );
+
+  if (compact) {
+    return (
+      <button
+        type="button"
+        data-item-card
+        onClick={() => !isOutOfStock && onSelect(item)}
+        disabled={isOutOfStock}
+        aria-label={`${item.name}, ${money(item.price, currency)}${cartQty ? `, ${cartQty} in ticket` : ""}`}
+        className={cn(
+          "press relative flex min-h-[4.75rem] w-full items-stretch gap-2.5 rounded-2xl border bg-surface p-2 text-left shadow-sm",
+          cartQty > 0 ? "border-brand/60 ring-1 ring-brand/40" : "border-line hover:border-line-strong",
+          isOutOfStock && "opacity-45 grayscale"
+        )}
+      >
+        {qtyBadge}
+        <span
+          className="flex w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl text-lg font-extrabold text-white"
+          style={{ backgroundColor: accent }}
+          aria-hidden
+        >
+          {item.image ? <img src={item.image} alt="" className="h-full w-full object-cover" loading="lazy" /> : item.name.charAt(0)}
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col justify-between py-0.5">
+          <span className="line-clamp-2 text-sm font-semibold leading-snug text-fg">{item.name}</span>
+          <span className="mt-1 flex items-center justify-between gap-1">
+            <span className="num text-sm font-bold text-ok">{money(item.price, currency)}</span>
+            <span className="flex items-center gap-1">{badges}</span>
+          </span>
+        </span>
+        {isOutOfStock && <SoldOut />}
+      </button>
+    );
+  }
 
   return (
     <button
+      type="button"
+      data-item-card
       onClick={() => !isOutOfStock && onSelect(item)}
       disabled={isOutOfStock}
-      className={`relative flex flex-col justify-between rounded-2xl text-left transition-all select-none overflow-hidden ${
-        isOutOfStock
-          ? "bg-slate-900/30 border border-slate-850 opacity-40 cursor-not-allowed"
-          : cartQty > 0
-          ? "bg-slate-900/90 active:scale-[0.96] active:bg-slate-800 border border-teal-500/50 shadow-sm shadow-teal-500/10 cursor-pointer"
-          : "bg-slate-900/90 active:scale-[0.96] active:bg-slate-800 border border-slate-800 shadow-sm cursor-pointer"
-      }`}
-      style={{
-        borderLeftColor: item.color || "#f97316",
-        borderLeftWidth: "3.5px",
-      }}
+      aria-label={`${item.name}, ${money(item.price, currency)}${cartQty ? `, ${cartQty} in ticket` : ""}`}
+      className={cn(
+        "press relative flex min-h-[7.25rem] w-full flex-col overflow-hidden rounded-2xl border bg-surface text-left shadow-sm",
+        cartQty > 0 ? "border-brand/60 ring-1 ring-brand/40" : "border-line hover:border-line-strong",
+        isOutOfStock && "opacity-45 grayscale"
+      )}
     >
-      {/* Optional Item Image Banner */}
+      {qtyBadge}
       {item.image ? (
-        <div className="w-full h-24 sm:h-28 bg-slate-950 relative overflow-hidden flex items-center justify-center">
-          <img
-            src={item.image}
-            alt={item.name}
-            className="w-full h-full object-cover"
-            loading="lazy"
-          />
-          {/* Subtle gradient overlay */}
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent opacity-60" />
-        </div>
-      ) : null}
-
-      <div className="p-3 flex-1 flex flex-col justify-between w-full">
-        {/* Top row: SKU, in-cart count, or modifiers pill */}
-        <div className="flex items-center justify-between gap-1 w-full mb-1">
-          <div className="flex items-center gap-1">
-            {item.sku ? (
-              <span className="text-[10px] font-mono text-slate-400 bg-slate-800/80 px-1.5 py-0.2 rounded">
-                {item.sku}
-              </span>
-            ) : null}
-            {cartQty > 0 && (
-              <span className="text-[10px] font-extrabold text-teal-300 bg-teal-500/25 border border-teal-500/50 px-1.5 py-0.5 rounded-full tabular-nums">
-                ×{cartQty}
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-1">
-            {hasModifiers && (
-              <span className="text-[9px] font-bold text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded">
-                +Options
-              </span>
-            )}
-            {item.trackStock && isLowStock && (
-              <span className="text-[9px] font-bold text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded flex items-center gap-0.5">
-                <AlertTriangle className="w-2.5 h-2.5" />
-                {item.stock}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Item title */}
-        <div className="my-1 flex-1 flex items-center">
-          <h4 className={`text-slate-100 leading-snug line-clamp-2 ${titleSizeClass}`}>
-            {item.name}
-          </h4>
-        </div>
-
-        {/* Price row */}
-        <div className="mt-2 pt-1.5 border-t border-slate-800/60 flex items-baseline justify-between w-full">
-          <span className={`text-emerald-400 font-mono ${priceSizeClass}`}>
-            {money(item.price, currency)}
-          </span>
-          {enableDualCurrency && (
-            <span className="text-[10px] font-mono text-slate-400">
-              {khr(khrPrice)}
+        <span className="relative block h-24 w-full shrink-0 overflow-hidden bg-surface-2 short:hidden tall:h-28">
+          <img src={item.image} alt="" className="h-full w-full object-cover" loading="lazy" draggable={false} />
+          <span className="absolute left-2 top-2 flex items-center gap-1">{badges}</span>
+          {item.isFavorite && (
+            <span className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-md bg-surface-2/90 text-amber-400 ring-1 ring-line">
+              <Star className="h-3.5 w-3.5 fill-current" />
             </span>
           )}
-        </div>
-      </div>
-
-      {/* Out of Stock Overlay */}
-      {isOutOfStock && (
-        <div className="absolute inset-0 bg-slate-950/80 rounded-2xl flex items-center justify-center">
-          <span className="px-2.5 py-1 bg-rose-600/90 text-white font-extrabold text-[11px] rounded-full">
-            Sold Out
-          </span>
-        </div>
+        </span>
+      ) : (
+        <span className="flex h-2 w-full shrink-0" style={{ backgroundColor: accent }} aria-hidden />
       )}
+
+      <span className="flex min-h-0 flex-1 flex-col p-2.5 sm:p-3">
+        {/* Badge row: always for photo-less cards; for photo cards only when the photo is hidden (short screens) */}
+        {(hasModifiers || isLowStock || item.isFavorite) && (
+          <span className={cn("mb-1 flex items-center gap-1", item.image ? "hidden short:flex" : "flex")}>
+            {badges}
+            {item.isFavorite && <Star className="h-3.5 w-3.5 fill-current text-amber-400" />}
+          </span>
+        )}
+        <span className="line-clamp-2 flex-1 text-sm font-semibold leading-snug text-fg sm:text-[0.9375rem]">{item.name}</span>
+        <span className="mt-2 flex items-baseline justify-between gap-2">
+          <span className="num text-base font-bold text-ok sm:text-lg">{money(item.price, currency)}</span>
+          {enableDualCurrency && <span className="num truncate text-xs text-fg-subtle">{khr(khrPrice)}</span>}
+        </span>
+      </span>
+      {isOutOfStock && <SoldOut />}
     </button>
   );
-};
+});
+
+const SoldOut = () => (
+  <span className="absolute inset-0 flex items-center justify-center rounded-2xl bg-bg/40">
+    <span className="rounded-full bg-rose-600 px-2.5 py-1 text-xs font-extrabold uppercase tracking-wide text-white shadow">
+      Sold out
+    </span>
+  </span>
+);

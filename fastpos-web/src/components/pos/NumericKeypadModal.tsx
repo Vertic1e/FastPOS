@@ -1,6 +1,8 @@
-import React, { useState } from "react";
-import { X, Delete, Plus } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Delete, Plus } from "lucide-react";
 import { money } from "@/lib/format";
+import { cn } from "@/lib/cn";
+import { Modal, Button, Input } from "@/components/ui";
 
 interface NumericKeypadModalProps {
   isOpen: boolean;
@@ -9,142 +11,96 @@ interface NumericKeypadModalProps {
   currency: string;
 }
 
-export const NumericKeypadModal: React.FC<NumericKeypadModalProps> = ({
-  isOpen,
-  onClose,
-  onAddCustomItem,
-  currency,
-}) => {
-  if (!isOpen) return null;
+const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "⌫"];
 
+export const NumericKeypadModal: React.FC<NumericKeypadModalProps> = ({ isOpen, onClose, onAddCustomItem, currency }) => {
   const [inputVal, setInputVal] = useState("0");
-  const [itemName, setItemName] = useState("Custom Item");
+  const [itemName, setItemName] = useState("Custom item");
 
-  const handleDigit = (digit: string) => {
-    if (inputVal === "0" && digit !== ".") {
-      setInputVal(digit);
-    } else {
-      if (digit === "." && inputVal.includes(".")) return;
-      if (inputVal.includes(".") && inputVal.split(".")[1]?.length >= 2) return;
-      if (inputVal.length >= 7) return;
-      setInputVal((prev) => prev + digit);
-    }
-  };
-
-  const handleBackspace = () => {
-    if (inputVal.length <= 1) {
+  useEffect(() => {
+    if (isOpen) {
       setInputVal("0");
-    } else {
-      setInputVal((prev) => prev.slice(0, -1));
+      setItemName("Custom item");
     }
-  };
+  }, [isOpen]);
 
-  const handleClear = () => {
-    setInputVal("0");
-  };
-
-  const handleAddPreset = (amt: number) => {
-    setInputVal(amt.toFixed(2));
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const amount = parseFloat(inputVal);
-    if (amount > 0) {
-      onAddCustomItem(amount, itemName.trim() || "Custom Item");
-      setInputVal("0");
-      onClose();
+  const press = (k: string) => {
+    if (k === "⌫") {
+      setInputVal((v) => (v.length <= 1 ? "0" : v.slice(0, -1)));
+      return;
     }
+    setInputVal((v) => {
+      if (k === "." && v.includes(".")) return v;
+      if (v.includes(".") && v.split(".")[1]?.length >= 2) return v;
+      if (v.replace(".", "").length >= 7) return v;
+      if (v === "0" && k !== ".") return k;
+      return v + k;
+    });
   };
 
-  const numericValue = parseFloat(inputVal) || 0;
+  const amount = parseFloat(inputVal) || 0;
+  const canAdd = amount > 0;
+  const submit = () => {
+    if (!canAdd) return;
+    onAddCustomItem(amount, itemName.trim() || "Custom item");
+    onClose();
+  };
+
+  // Physical keyboard support
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement | null)?.tagName === "INPUT") return;
+      if (/^[0-9.]$/.test(e.key)) press(e.key);
+      else if (e.key === "Backspace") press("⌫");
+      else if (e.key === "Enter") submit();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl shadow-black/80 flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-slate-950/40">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-teal-500" />
-            <h3 className="font-bold text-white text-base">Quick Custom Price</h3>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      size="sm"
+      title="Custom amount"
+      description="Add an item that isn't in the catalog."
+      bodyClassName="p-4 short:p-3"
+      footer={
+        <Button variant="primary" size="xl" fullWidth onClick={submit} disabled={!canAdd} leftIcon={<Plus className="h-5 w-5" />}>
+          Add {canAdd ? money(amount, currency) : "to ticket"}
+        </Button>
+      }
+    >
+      {/* On short (landscape phone) screens the name/amount sit beside the keypad so no key needs scrolling */}
+      <div className="flex flex-col gap-3 short:grid short:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] short:items-start">
+        <div className="flex flex-col gap-3 short:sticky short:top-0">
+          <Input value={itemName} onChange={(e) => setItemName(e.target.value)} aria-label="Item name" placeholder="Item name" enterKeyHint="done" />
 
-        {/* Amount Display */}
-        <div className="px-6 py-4 bg-slate-950/60 border-b border-slate-800/80 text-center">
-          <input
-            type="text"
-            value={itemName}
-            onChange={(e) => setItemName(e.target.value)}
-            placeholder="Custom Item"
-            className="w-full text-center bg-transparent text-xs text-slate-400 focus:text-white focus:outline-none mb-1 font-medium"
-          />
-          <div className="text-4xl font-extrabold text-white tracking-tight tabular-nums font-mono py-1">
-            {money(numericValue, currency)}
+          <div className="flex h-16 items-center justify-end rounded-2xl border border-line bg-surface-2/60 px-4 short:h-14" aria-live="polite">
+            <span className="mr-2 text-lg font-bold text-fg-subtle">{currency}</span>
+            <span className="num text-3xl font-extrabold tracking-tight text-fg">{inputVal}</span>
           </div>
         </div>
 
-        {/* Preset quick buttons */}
-        <div className="grid grid-cols-5 gap-1.5 p-3 bg-slate-950/30 border-b border-slate-800">
-          {[1, 2, 5, 10, 20].map((val) => (
+        <div className="grid grid-cols-3 gap-2 short:gap-1.5">
+          {KEYS.map((k) => (
             <button
-              key={val}
+              key={k}
               type="button"
-              onClick={() => handleAddPreset(val)}
-              className="py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 active:scale-95 text-xs font-bold text-teal-400 transition"
+              onClick={() => press(k)}
+              aria-label={k === "⌫" ? "Backspace" : k}
+              className={cn(
+                "press num flex h-14 items-center justify-center rounded-2xl border text-2xl font-bold short:h-10 short:rounded-xl short:text-xl",
+                k === "⌫" ? "border-line bg-surface-2 text-fg-muted hover:bg-bad-soft hover:text-bad" : "border-line bg-surface text-fg hover:bg-surface-2"
+              )}
             >
-              +${val}
+              {k === "⌫" ? <Delete className="h-6 w-6" /> : k}
             </button>
           ))}
-        </div>
-
-        {/* 12-key digit pad */}
-        <div className="p-4 grid grid-cols-3 gap-2">
-          {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0"].map((key) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => handleDigit(key)}
-              className="h-14 rounded-2xl bg-slate-800/90 hover:bg-slate-700/90 active:scale-95 text-xl font-bold text-white transition flex items-center justify-center shadow-sm"
-            >
-              {key}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={handleBackspace}
-            className="h-14 rounded-2xl bg-slate-800/90 hover:bg-rose-500/20 active:scale-95 text-rose-400 hover:text-rose-300 transition flex items-center justify-center"
-          >
-            <Delete className="w-6 h-6" />
-          </button>
-        </div>
-
-        {/* Actions */}
-        <div className="p-4 pt-0 grid grid-cols-3 gap-2">
-          <button
-            type="button"
-            onClick={handleClear}
-            className="py-3.5 rounded-2xl bg-slate-800 text-slate-300 hover:text-white text-xs font-bold transition"
-          >
-            Clear
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={numericValue <= 0}
-            className="col-span-2 py-3.5 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 active:scale-98 text-white font-extrabold text-sm transition shadow-lg shadow-orange-500/25 flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <Plus className="w-4 h-4 stroke-[3]" />
-            Add to Cart
-          </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };

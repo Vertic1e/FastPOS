@@ -18,5 +18,8 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    // Dev server only: allow opening the register from tablets/phones on the
+    // same Wi-Fi via a hostname (e.g. http://my-pc.local:5173) or a tunnel.
+    allowedHosts: true,
   },
 });

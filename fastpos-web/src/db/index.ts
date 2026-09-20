@@ -73,7 +73,21 @@ export class FastPosDB extends Dexie {
 export const db = new FastPosDB();
 
 // Auto-seed initial store data if database is empty
-export async function seedInitialData(force = false) {
+/**
+ * Seeds demo data on first launch.
+ * Runs inside a single read/write transaction so concurrent callers (React StrictMode
+ * double-invoking effects in dev, or two tabs booting at once) cannot both see an empty
+ * database and seed it twice.
+ */
+export function seedInitialData(force = false) {
+  return db.transaction(
+    "rw",
+    [db.shops, db.categories, db.menuItems, db.orders, db.orderItems, db.shifts, db.cashMovements, db.stockMovements, db.heldTickets, db.settings],
+    () => seedInitialDataUnsafe(force)
+  );
+}
+
+async function seedInitialDataUnsafe(force: boolean) {
   const shopCount = await db.shops.count();
   if (shopCount > 0 && !force) {
     return;

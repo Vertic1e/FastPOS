@@ -1,45 +1,62 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f97316' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect width='20' height='14' x='2' y='5' rx='2'/><line x1='2' x2='22' y1='10' y2='10'/></svg>" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="theme-color" content="#0f172a" />
+    <!-- viewport-fit=cover lets the UI extend under notches; safe-area padding is handled in CSS. Pinch-zoom stays enabled for accessibility. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0f19" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="FastPOS Web" />
+    <meta name="apple-mobile-web-app-title" content="FastPOS" />
     <meta name="description" content="FastPOS Web - Ultra-fast, offline-first Restaurant & Retail Point of Sale system" />
     <link rel="apple-touch-icon" href="icon-192.svg" />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <title>FastPOS — Restaurant & Retail POS</title>
     <script>
-      // Self-healing service worker cache flusher on script loading failure
-      window.addEventListener('error', function(e) {
-        if (e.target && (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK')) {
-          if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(function(regs) {
-              for (var i = 0; i < regs.length; i++) {
-                regs[i].unregister();
-              }
-              if (window.caches) {
-                caches.keys().then(function(keys) {
-                  for (var j = 0; j < keys.length; j++) {
-                    caches.delete(keys[j]);
-                  }
-                  window.location.reload();
-                });
-              }
-            });
+      // Apply the cached theme before any CSS paints to avoid a flash.
+      try {
+        var t = localStorage.getItem("fastpos:theme");
+        if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+
+      // Self-healing: if the app's own module bundle fails to load (stale service-worker cache after a deploy),
+      // clear caches and reload once. Only same-origin <script type="module"> failures qualify, and a
+      // sessionStorage guard prevents reload loops (e.g. when a device is simply offline).
+      window.addEventListener(
+        "error",
+        function (e) {
+          var el = e.target;
+          if (!el || el.tagName !== "SCRIPT" || el.type !== "module") return;
+          var src = el.getAttribute("src") || "";
+          if (/^https?:\/\//.test(src) && src.indexOf(location.origin) !== 0) return;
+          var key = "fastpos:self-heal";
+          try {
+            if (sessionStorage.getItem(key)) return;
+            sessionStorage.setItem(key, String(Date.now()));
+          } catch (err) {
+            return;
           }
-        }
-      }, true);
+          if (!("serviceWorker" in navigator)) return;
+          navigator.serviceWorker
+            .getRegistrations()
+            .then(function (regs) {
+              return Promise.all(regs.map(function (r) { return r.unregister(); }));
+            })
+            .then(function () {
+              return window.caches ? caches.keys().then(function (keys) { return Promise.all(keys.map(function (k) { return caches.delete(k); })); }) : null;
+            })
+            .then(function () { window.location.reload(); });
+        },
+        true
+      );
     </script>
   </head>
-  <body class="bg-slate-950 text-slate-100 min-h-screen antialiased select-none overflow-x-hidden font-sans">
+  <body class="antialiased">
     <div id="root"></div>
+    <noscript>FastPOS needs JavaScript to run.</noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

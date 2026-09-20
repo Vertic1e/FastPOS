@@ -1,191 +1,162 @@
-import React, { useState } from "react";
-import { X, Plus, Trash2, Check } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Plus, Trash2, Check, ChevronUp, ChevronDown, Pencil } from "lucide-react";
 import type { Category, StoreSettings } from "@/types";
 import { db } from "@/db";
+import { cn } from "@/lib/cn";
 import { CategoryIcon } from "@/components/common/CategoryIcon";
+import { Modal, Button, Input, SectionLabel, useConfirm } from "@/components/ui";
 
 interface CategoryEditModalProps {
+  open: boolean;
   categories: Category[];
   onClose: () => void;
   settings: StoreSettings;
 }
 
-export const CategoryEditModal: React.FC<CategoryEditModalProps> = ({
-  categories,
-  onClose,
-  settings,
-}) => {
-  const [newCatName, setNewCatName] = useState("");
-  const [newCatColor, setNewCatColor] = useState("#f97316");
-  const [newCatIcon, setNewCatIcon] = useState("coffee");
+const ICONS = ["coffee", "cup-soda", "croissant", "sandwich", "utensils", "pizza", "cake", "ice-cream", "beer", "wine", "apple", "flame", "soup"];
+const COLORS = ["#f97316", "#10b981", "#eab308", "#ef4444", "#8b5cf6", "#06b6d4", "#3b82f6", "#ec4899"];
 
-  const icons = [
-    "coffee",
-    "cup-soda",
-    "croissant",
-    "sandwich",
-    "utensils",
-    "pizza",
-    "cake",
-    "ice-cream",
-    "beer",
-    "wine",
-    "apple",
-    "flame",
-    "soup",
-  ];
+export const CategoryEditModal: React.FC<CategoryEditModalProps> = ({ open, categories, onClose, settings }) => {
+  const confirm = useConfirm();
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [name, setName] = useState("");
+  const [color, setColor] = useState(COLORS[0]);
+  const [icon, setIcon] = useState(ICONS[0]);
 
-  const colors = [
-    "#f97316",
-    "#10b981",
-    "#eab308",
-    "#ef4444",
-    "#8b5cf6",
-    "#06b6d4",
-    "#3b82f6",
-    "#ec4899",
-  ];
+  useEffect(() => {
+    if (open) resetForm();
+  }, [open]);
 
-  const handleAddCategory = async () => {
-    if (!newCatName.trim()) return;
-
-    await db.categories.add({
-      shopId: settings.activeShopId || 1,
-      name: newCatName.trim(),
-      color: newCatColor,
-      icon: newCatIcon,
-      sortOrder: categories.length + 1,
-      isActive: true,
-    });
-
-    setNewCatName("");
+  const resetForm = () => {
+    setEditingId(null);
+    setName("");
+    setColor(COLORS[0]);
+    setIcon(ICONS[0]);
   };
 
-  const handleDeleteCategory = async (id: number) => {
-    if (confirm("Delete this category? Items under it will be unassigned.")) {
-      await db.categories.delete(id);
+  const startEdit = (c: Category) => {
+    setEditingId(c.id!);
+    setName(c.name);
+    setColor(c.color);
+    setIcon(c.icon);
+  };
+
+  const save = async () => {
+    if (!name.trim()) return;
+    if (editingId != null) {
+      await db.categories.update(editingId, { name: name.trim(), color, icon });
+    } else {
+      await db.categories.add({
+        shopId: settings.activeShopId || 1,
+        name: name.trim(),
+        color,
+        icon,
+        sortOrder: (categories[categories.length - 1]?.sortOrder ?? categories.length) + 1,
+        isActive: true,
+      });
     }
+    resetForm();
+  };
+
+  const remove = async (c: Category) => {
+    const ok = await confirm({
+      title: `Delete “${c.name}”?`,
+      message: "Items in this category are kept and become uncategorized.",
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
+    if (!ok) return;
+    await db.categories.delete(c.id!);
+    await db.menuItems.where("categoryId").equals(c.id!).modify({ categoryId: null });
+    if (editingId === c.id) resetForm();
+  };
+
+  const move = async (index: number, dir: -1 | 1) => {
+    const target = index + dir;
+    if (target < 0 || target >= categories.length) return;
+    const a = categories[index];
+    const b = categories[target];
+    await db.transaction("rw", db.categories, async () => {
+      await db.categories.update(a.id!, { sortOrder: target + 1 });
+      await db.categories.update(b.id!, { sortOrder: index + 1 });
+    });
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md max-h-[85vh] flex flex-col shadow-2xl shadow-black/70 overflow-hidden">
-        {/* Header */}
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
-          <h3 className="font-extrabold text-base text-white">Manage Categories</h3>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="p-5 overflow-y-auto flex-1 space-y-5 text-xs">
-          {/* New Category Form */}
-          <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
-            <h4 className="font-bold text-slate-200">Create New Category</h4>
-            <div className="space-y-1">
-              <input
-                type="text"
-                value={newCatName}
-                onChange={(e) => setNewCatName(e.target.value)}
-                placeholder="Category name (e.g. Desserts)..."
-                className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-750 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-orange-500"
-              />
-            </div>
-
-            {/* Icon Picker */}
-            <div className="space-y-1">
-              <label className="text-slate-400 font-semibold block">Select Icon</label>
-              <div className="flex flex-wrap gap-1.5">
-                {icons.map((ic) => (
-                  <button
-                    key={ic}
-                    type="button"
-                    onClick={() => setNewCatIcon(ic)}
-                    className={`p-2 rounded-xl border transition ${
-                      newCatIcon === ic
-                        ? "bg-orange-500 text-white border-orange-400"
-                        : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800"
-                    }`}
-                  >
-                    <CategoryIcon name={ic} className="w-4 h-4" />
-                  </button>
-                ))}
+    <Modal open={open} onClose={onClose} size="md" title="Categories" description="Group items into tabs on the register. Order here is the order cashiers see.">
+      <div className="flex flex-col gap-5">
+        <ul className="flex flex-col gap-1.5">
+          {categories.map((c, i) => (
+            <li key={c.id} className={cn("flex items-center gap-2 rounded-2xl border p-2", editingId === c.id ? "border-brand bg-brand-soft/40" : "border-line bg-surface-2/40")}>
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white" style={{ backgroundColor: c.color }}>
+                <CategoryIcon name={c.icon} className="h-5 w-5" />
+              </span>
+              <span className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">{c.name}</span>
+              <div className="flex items-center">
+                <Button variant="ghost" size="sm" iconOnly aria-label="Move up" onClick={() => move(i, -1)} disabled={i === 0}>
+                  <ChevronUp className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="sm" iconOnly aria-label="Move down" onClick={() => move(i, 1)} disabled={i === categories.length - 1}>
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="sm" iconOnly aria-label={`Edit ${c.name}`} onClick={() => startEdit(c)}>
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="sm" iconOnly aria-label={`Delete ${c.name}`} className="hover:bg-bad-soft hover:text-bad" onClick={() => remove(c)}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </div>
-            </div>
+            </li>
+          ))}
+          {categories.length === 0 && <li className="rounded-2xl border border-dashed border-line p-4 text-center text-sm text-fg-subtle">No categories yet.</li>}
+        </ul>
 
-            {/* Color Picker */}
-            <div className="space-y-1">
-              <label className="text-slate-400 font-semibold block">Select Color</label>
-              <div className="flex items-center gap-2">
-                {colors.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => setNewCatColor(c)}
-                    className="w-6 h-6 rounded-full border border-white/20 flex items-center justify-center transition"
-                    style={{ backgroundColor: c }}
-                  >
-                    {newCatColor === c && <Check className="w-3.5 h-3.5 text-white stroke-[3]" />}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <button
-              onClick={handleAddCategory}
-              disabled={!newCatName.trim()}
-              className="w-full py-2 px-3 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold text-xs shadow-md active:scale-95 transition"
-            >
-              Add Category
-            </button>
+        <section className="rounded-2xl border border-line bg-surface-2/40 p-3 sm:p-4">
+          <SectionLabel>{editingId != null ? "Edit category" : "New category"}</SectionLabel>
+          <div className="mt-2 flex gap-2">
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Category name" aria-label="Category name" enterKeyHint="done" onKeyDown={(e) => e.key === "Enter" && save()} />
           </div>
-
-          {/* Existing Categories */}
-          <div className="space-y-2">
-            <h4 className="font-bold text-slate-400 uppercase tracking-wider text-[10px]">
-              Active Categories ({categories.length})
-            </h4>
-            <div className="space-y-1.5">
-              {categories.map((c) => (
-                <div
-                  key={c.id}
-                  className="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/60 border border-slate-800"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <div
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-white"
-                      style={{ backgroundColor: c.color }}
-                    >
-                      <CategoryIcon name={c.icon} className="w-3.5 h-3.5" />
-                    </div>
-                    <span className="font-bold text-slate-200 text-xs">{c.name}</span>
-                  </div>
-
-                  <button
-                    onClick={() => handleDeleteCategory(c.id!)}
-                    className="text-slate-500 hover:text-rose-400 p-1 rounded-lg"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {ICONS.map((ic) => (
+              <button
+                key={ic}
+                type="button"
+                onClick={() => setIcon(ic)}
+                aria-label={ic}
+                aria-pressed={icon === ic}
+                className={cn("press flex h-10 w-10 items-center justify-center rounded-xl border", icon === ic ? "border-brand bg-brand text-white" : "border-line bg-surface text-fg-muted hover:text-fg")}
+              >
+                <CategoryIcon name={ic} className="h-5 w-5" />
+              </button>
+            ))}
           </div>
-        </div>
-
-        {/* Footer */}
-        <div className="p-3 border-t border-slate-800 bg-slate-950/60 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs"
-          >
-            Done
-          </button>
-        </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setColor(c)}
+                aria-label={`Colour ${c}`}
+                aria-pressed={color === c}
+                className={cn("press flex h-9 w-9 items-center justify-center rounded-full border-2", color === c ? "border-fg" : "border-transparent")}
+                style={{ backgroundColor: c }}
+              >
+                {color === c && <Check className="h-4 w-4 text-white" />}
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 flex gap-2">
+            {editingId != null && (
+              <Button variant="secondary" size="md" onClick={resetForm}>
+                Cancel
+              </Button>
+            )}
+            <Button variant="primary" size="md" fullWidth onClick={save} disabled={!name.trim()} leftIcon={editingId != null ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}>
+              {editingId != null ? "Save" : "Add category"}
+            </Button>
+          </div>
+        </section>
       </div>
-    </div>
+    </Modal>
   );
 };

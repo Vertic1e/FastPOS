@@ -1,41 +1,62 @@
-import React, { useState, useEffect } from "react";
-import { X, Plus, Trash2, Check, DollarSign, Layers } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Plus, Trash2, Camera, ImagePlus, Star } from "lucide-react";
 import type { MenuItem, Category, ModifierGroup, StoreSettings } from "@/types";
 import { db } from "@/db";
+import { cn } from "@/lib/cn";
+import { Modal, Button, Field, Input, Select, Switch, SectionLabel, Badge, useToast } from "@/components/ui";
 
 interface ItemEditModalProps {
+  open: boolean;
   item: MenuItem | null;
   categories: Category[];
   onClose: () => void;
   settings: StoreSettings;
 }
 
-export const ItemEditModal: React.FC<ItemEditModalProps> = ({
-  item,
-  categories,
-  onClose,
-  settings,
-}) => {
-  const isEditing = !!item && !!item.id;
+const COLORS = ["#f97316", "#ea580c", "#eab308", "#10b981", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899", "#ef4444", "#64748b"];
 
-  const [name, setName] = useState(item?.name || "");
-  const [sku, setSku] = useState(item?.sku || "");
-  const [categoryId, setCategoryId] = useState<number | null>(
-    item?.categoryId ?? (categories[0]?.id || null)
-  );
-  const [price, setPrice] = useState(item?.price?.toString() || "3.50");
-  const [cost, setCost] = useState(item?.cost?.toString() || "1.00");
-  const [stock, setStock] = useState(item?.stock?.toString() || "50");
-  const [lowStockAt, setLowStockAt] = useState(item?.lowStockAt?.toString() || "10");
-  const [trackStock, setTrackStock] = useState(item?.trackStock ?? true);
-  const [color, setColor] = useState(item?.color || "#f97316");
-  const [image, setImage] = useState<string | undefined>(item?.image);
-  const [modifiers, setModifiers] = useState<ModifierGroup[]>(item?.modifiers || []);
+export const ItemEditModal: React.FC<ItemEditModalProps> = ({ open, item, categories, onClose, settings }) => {
+  const toast = useToast();
+  const isEditing = !!item?.id;
+  const [name, setName] = useState("");
+  const [sku, setSku] = useState("");
+  const [categoryId, setCategoryId] = useState<number | null>(null);
+  const [price, setPrice] = useState("");
+  const [cost, setCost] = useState("");
+  const [stock, setStock] = useState("");
+  const [lowStockAt, setLowStockAt] = useState("");
+  const [trackStock, setTrackStock] = useState(true);
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [isActive, setIsActive] = useState(true);
+  const [color, setColor] = useState(COLORS[0]);
+  const [image, setImage] = useState<string | undefined>(undefined);
+  const [modifiers, setModifiers] = useState<ModifierGroup[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // (Re)initialise the form each time the dialog opens
+  useEffect(() => {
+    if (!open) return;
+    setName(item?.name || "");
+    setSku(item?.sku || "");
+    setCategoryId(item?.categoryId ?? (categories[0]?.id ?? null));
+    setPrice(item ? String(item.price) : "");
+    setCost(item ? String(item.cost) : "");
+    setStock(item ? String(item.stock) : "50");
+    setLowStockAt(item ? String(item.lowStockAt) : "10");
+    setTrackStock(item?.trackStock ?? true);
+    setIsFavorite(!!item?.isFavorite);
+    setIsActive(item?.isActive ?? true);
+    setColor(item?.color || COLORS[0]);
+    setImage(item?.image);
+    setModifiers(item?.modifiers ? item.modifiers.map((g) => ({ ...g, options: g.options.map((o) => ({ ...o })) })) : []);
+    setError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, item]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (ev) => {
       const img = new Image();
@@ -55,439 +76,255 @@ export const ItemEditModal: React.FC<ItemEditModalProps> = ({
         }
         canvas.width = w;
         canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        ctx?.drawImage(img, 0, 0, w, h);
+        canvas.getContext("2d")?.drawImage(img, 0, 0, w, h);
         setImage(canvas.toDataURL("image/jpeg", 0.82));
       };
       img.src = ev.target?.result as string;
     };
     reader.readAsDataURL(file);
+    e.target.value = "";
   };
 
-  const colorPalette = [
-    "#f97316", // orange
-    "#ea580c", // dark orange
-    "#eab308", // amber
-    "#10b981", // emerald
-    "#06b6d4", // cyan
-    "#3b82f6", // blue
-    "#8b5cf6", // purple
-    "#ec4899", // pink
-    "#ef4444", // red
-  ];
-
-  // Modifier Group management
-  const handleAddGroup = () => {
+  /* ---------- modifier groups ---------- */
+  const updateGroup = (idx: number, patch: Partial<ModifierGroup>) =>
+    setModifiers((prev) => prev.map((g, i) => (i === idx ? { ...g, ...patch } : g)));
+  const addGroup = () =>
     setModifiers((prev) => [
       ...prev,
-      {
-        name: "New Group",
-        required: false,
-        options: [
-          { name: "Option 1", price: 0 },
-          { name: "Option 2", price: 0.5 },
-        ],
-      },
+      { name: `Option group ${prev.length + 1}`, required: false, options: [{ name: "Regular", price: 0 }, { name: "Large", price: 0.5 }] },
     ]);
-  };
+  const removeGroup = (idx: number) => setModifiers((prev) => prev.filter((_, i) => i !== idx));
+  const addOption = (gi: number) => updateGroup(gi, { options: [...modifiers[gi].options, { name: "", price: 0 }] });
+  const updateOption = (gi: number, oi: number, patch: { name?: string; price?: number }) =>
+    updateGroup(gi, { options: modifiers[gi].options.map((o, i) => (i === oi ? { ...o, ...patch } : o)) });
+  const removeOption = (gi: number, oi: number) => updateGroup(gi, { options: modifiers[gi].options.filter((_, i) => i !== oi) });
 
-  const handleRemoveGroup = (idx: number) => {
-    setModifiers((prev) => prev.filter((_, i) => i !== idx));
-  };
+  const save = async () => {
+    if (!name.trim()) {
+      setError("Give the item a name.");
+      return;
+    }
+    const parsedPrice = parseFloat(price);
+    if (Number.isNaN(parsedPrice) || parsedPrice < 0) {
+      setError("Enter a valid selling price.");
+      return;
+    }
+    const cleanModifiers = modifiers
+      .map((g) => ({ ...g, name: g.name.trim() || "Options", options: g.options.filter((o) => o.name.trim()).map((o) => ({ name: o.name.trim(), price: o.price || 0 })) }))
+      .filter((g) => g.options.length > 0);
 
-  const handleUpdateGroupName = (idx: number, newName: string) => {
-    setModifiers((prev) => {
-      const next = [...prev];
-      next[idx] = { ...next[idx], name: newName };
-      return next;
-    });
-  };
-
-  const handleToggleGroupRequired = (idx: number) => {
-    setModifiers((prev) => {
-      const next = [...prev];
-      next[idx] = { ...next[idx], required: !next[idx].required };
-      return next;
-    });
-  };
-
-  const handleAddOption = (groupIdx: number) => {
-    setModifiers((prev) => {
-      const next = [...prev];
-      next[groupIdx] = {
-        ...next[groupIdx],
-        options: [...next[groupIdx].options, { name: "Extra", price: 0.5 }],
-      };
-      return next;
-    });
-  };
-
-  const handleUpdateOption = (
-    groupIdx: number,
-    optIdx: number,
-    optName: string,
-    optPrice: number
-  ) => {
-    setModifiers((prev) => {
-      const next = [...prev];
-      const nextOpts = [...next[groupIdx].options];
-      nextOpts[optIdx] = { name: optName, price: optPrice };
-      next[groupIdx] = { ...next[groupIdx], options: nextOpts };
-      return next;
-    });
-  };
-
-  const handleRemoveOption = (groupIdx: number, optIdx: number) => {
-    setModifiers((prev) => {
-      const next = [...prev];
-      next[groupIdx] = {
-        ...next[groupIdx],
-        options: next[groupIdx].options.filter((_, i) => i !== optIdx),
-      };
-      return next;
-    });
-  };
-
-  const handleSave = async () => {
-    if (!name.trim()) return;
-
-    const parsedPrice = parseFloat(price) || 0;
-    const parsedCost = parseFloat(cost) || 0;
-    const parsedStock = parseInt(stock) || 0;
-    const parsedLow = parseInt(lowStockAt) || 10;
-
-    const payload: Partial<MenuItem> = {
+    const payload: Omit<MenuItem, "id"> = {
       shopId: item?.shopId || settings.activeShopId || 1,
       name: name.trim(),
       sku: sku.trim() || undefined,
       categoryId,
       price: parsedPrice,
-      cost: parsedCost,
-      stock: parsedStock,
-      lowStockAt: parsedLow,
+      cost: parseFloat(cost) || 0,
+      stock: parseInt(stock, 10) || 0,
+      lowStockAt: parseInt(lowStockAt, 10) || 0,
       trackStock,
       color,
       image,
-      modifiers,
-      isActive: true,
+      isFavorite,
+      modifiers: cleanModifiers,
+      isActive,
       createdAt: item?.createdAt || new Date(),
     };
-
-    if (isEditing) {
-      await db.menuItems.update(item!.id!, payload);
-    } else {
-      await db.menuItems.add(payload as MenuItem);
-    }
-
+    if (isEditing) await db.menuItems.update(item!.id!, payload);
+    else await db.menuItems.add(payload as MenuItem);
+    toast({ title: isEditing ? "Item updated" : "Item added", description: payload.name });
     onClose();
   };
 
+  const margin = (() => {
+    const p = parseFloat(price);
+    const c = parseFloat(cost);
+    if (!p || Number.isNaN(c)) return null;
+    return Math.round(((p - c) / p) * 100);
+  })();
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-xl max-h-[92vh] flex flex-col shadow-2xl shadow-black/70 overflow-hidden">
-        {/* Header */}
-        <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
-          <h3 className="font-extrabold text-base text-white">
-            {isEditing ? `Edit "${item?.name}"` : "Create Menu Item"}
-          </h3>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
-          >
-            <X className="w-4 h-4" />
-          </button>
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="lg"
+      title={isEditing ? "Edit item" : "New item"}
+      description={isEditing ? item?.name : "Products appear in the register as soon as they're saved."}
+      footer={
+        <div className="flex gap-2">
+          <Button variant="secondary" size="lg" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" size="lg" fullWidth onClick={save}>
+            {isEditing ? "Save changes" : "Add item"}
+          </Button>
         </div>
+      }
+    >
+      <div className="flex flex-col gap-5">
+        {error && (
+          <p role="alert" className="rounded-xl border border-bad/40 bg-bad-soft px-3 py-2 text-sm font-semibold text-bad">
+            {error}
+          </p>
+        )}
 
-        {/* Scrollable Form */}
-        <div className="p-5 overflow-y-auto flex-1 space-y-4 text-xs">
-          {/* Image Upload Area */}
-          <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-2">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="font-bold text-slate-200">Product Photo</span>
-                <p className="text-[10px] text-slate-500">Camera or photo gallery upload</p>
-              </div>
-              {image && (
-                <button
-                  type="button"
-                  onClick={() => setImage(undefined)}
-                  className="text-[11px] text-rose-400 hover:underline"
-                >
-                  Remove Photo
-                </button>
-              )}
-            </div>
-
-            <div className="flex items-center gap-3 pt-1">
-              {image ? (
-                <div className="w-16 h-16 rounded-xl overflow-hidden border border-slate-750 shrink-0 bg-slate-900">
-                  <img src={image} alt="Preview" className="w-full h-full object-cover" />
-                </div>
-              ) : (
-                <div className="w-16 h-16 rounded-xl border border-dashed border-slate-700 bg-slate-900/50 flex flex-col items-center justify-center text-slate-500 shrink-0">
-                  <span className="text-[9px]">No photo</span>
-                </div>
-              )}
-
-              <label className="flex-1 cursor-pointer">
-                <div className="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-750 text-center font-bold text-xs text-orange-400 transition active:scale-95">
-                  {image ? "Change Photo" : "Upload Photo"}
-                </div>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageUpload}
-                  className="hidden"
-                />
-              </label>
-            </div>
-          </div>
-
-          {/* Item Name & SKU */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="col-span-2 space-y-1">
-              <label className="font-semibold text-slate-300">Item Name *</label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Vanilla Bean Latte"
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-orange-500"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="font-semibold text-slate-300">SKU / Barcode</label>
-              <input
-                type="text"
-                value={sku}
-                onChange={(e) => setSku(e.target.value)}
-                placeholder="e.g. CF-05"
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 placeholder:text-slate-500 font-mono focus:outline-none focus:border-orange-500"
-              />
-            </div>
-          </div>
-
-          {/* Category & Color */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="font-semibold text-slate-300">Category</label>
-              <select
-                value={categoryId ?? ""}
-                onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : null)}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 focus:outline-none focus:border-orange-500"
-              >
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-1">
-              <label className="font-semibold text-slate-300">Accent Color</label>
-              <div className="flex items-center gap-1.5 pt-1">
-                {colorPalette.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => setColor(c)}
-                    className="w-6 h-6 rounded-full border border-white/20 flex items-center justify-center transition"
-                    style={{ backgroundColor: c }}
-                  >
-                    {color === c && <Check className="w-3.5 h-3.5 text-white stroke-[3]" />}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Pricing & Cost */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="font-semibold text-slate-300">Selling Price ($) *</label>
-              <input
-                type="number"
-                step="0.01"
-                value={price}
-                onChange={(e) => setPrice(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 font-mono font-bold text-sm focus:outline-none focus:border-orange-500"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="font-semibold text-slate-300">Cost of Goods ($)</label>
-              <input
-                type="number"
-                step="0.01"
-                value={cost}
-                onChange={(e) => setCost(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 font-mono text-sm focus:outline-none focus:border-orange-500"
-              />
-            </div>
-          </div>
-
-          {/* Stock Tracking */}
-          <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="font-bold text-slate-200">Track Inventory Stock</span>
-                <p className="text-[11px] text-slate-500">
-                  Automatically reduce stock on order sale and alert on low stock
-                </p>
-              </div>
-              <input
-                type="checkbox"
-                checked={trackStock}
-                onChange={(e) => setTrackStock(e.target.checked)}
-                className="w-4 h-4 rounded text-orange-500 focus:ring-0 cursor-pointer"
-              />
-            </div>
-
-            {trackStock && (
-              <div className="grid grid-cols-2 gap-3 pt-1 border-t border-slate-850">
-                <div className="space-y-1">
-                  <label className="text-slate-400 font-medium">In-Stock Quantity</label>
-                  <input
-                    type="number"
-                    value={stock}
-                    onChange={(e) => setStock(e.target.value)}
-                    className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-100 font-mono focus:outline-none focus:border-orange-500"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-slate-400 font-medium">Low Stock Warning At</label>
-                  <input
-                    type="number"
-                    value={lowStockAt}
-                    onChange={(e) => setLowStockAt(e.target.value)}
-                    className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-100 font-mono focus:outline-none focus:border-orange-500"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Modifiers Builder */}
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="font-bold text-slate-200">Item Modifiers & Add-ons</h4>
-                <p className="text-[11px] text-slate-500">
-                  e.g. Size choices, Milk types, Sweetness levels, Toppings
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={handleAddGroup}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-orange-400 font-semibold transition"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add Group</span>
-              </button>
-            </div>
-
-            {modifiers.map((grp, gIdx) => (
-              <div
-                key={gIdx}
-                className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <input
-                    type="text"
-                    value={grp.name}
-                    onChange={(e) => handleUpdateGroupName(gIdx, e.target.value)}
-                    className="font-bold text-slate-100 bg-transparent border-b border-dashed border-slate-700 focus:outline-none focus:border-orange-500 pb-0.5"
-                  />
-                  <div className="flex items-center gap-2">
-                    <label className="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={grp.required}
-                        onChange={() => handleToggleGroupRequired(gIdx)}
-                        className="rounded text-orange-500 focus:ring-0"
-                      />
-                      <span>Required</span>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveGroup(gIdx)}
-                      className="text-slate-500 hover:text-rose-400 p-1"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Options list */}
-                <div className="space-y-1.5 pl-2">
-                  {grp.options.map((opt, oIdx) => (
-                    <div key={oIdx} className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={opt.name}
-                        onChange={(e) =>
-                          handleUpdateOption(gIdx, oIdx, e.target.value, opt.price)
-                        }
-                        placeholder="Option name"
-                        className="flex-1 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-orange-500"
-                      />
-                      <div className="flex items-center gap-1 w-24">
-                        <span className="text-slate-500 font-mono">+$</span>
-                        <input
-                          type="number"
-                          step="0.05"
-                          value={opt.price}
-                          onChange={(e) =>
-                            handleUpdateOption(
-                              gIdx,
-                              oIdx,
-                              opt.name,
-                              parseFloat(e.target.value) || 0
-                            )
-                          }
-                          className="w-full px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 font-mono text-xs focus:outline-none focus:border-orange-500"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveOption(gIdx, oIdx)}
-                        className="text-slate-600 hover:text-rose-400 p-1"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
+        {/* Identity */}
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="press relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-line text-3xl font-extrabold text-white"
+            style={{ backgroundColor: color }}
+            aria-label={image ? "Change photo" : "Add photo"}
+          >
+            {image ? <img src={image} alt="" className="h-full w-full object-cover" /> : name.trim().charAt(0) || <ImagePlus className="h-8 w-8 opacity-90" />}
+            <span className="absolute bottom-1 right-1 flex h-7 w-7 items-center justify-center rounded-lg bg-surface/90 text-fg shadow">
+              <Camera className="h-4 w-4" />
+            </span>
+          </button>
+          <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageUpload} />
+          <div className="flex min-w-0 flex-1 flex-col gap-3">
+            <Field label="Name" required>
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Iced Latte" autoFocus={!isEditing} enterKeyHint="next" />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="SKU / barcode">
+                <Input value={sku} onChange={(e) => setSku(e.target.value)} placeholder="Optional" mono enterKeyHint="next" />
+              </Field>
+              <Field label="Category">
+                <Select value={categoryId ?? ""} onChange={(e) => setCategoryId(e.target.value === "" ? null : Number(e.target.value))}>
+                  <option value="">Uncategorized</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
                   ))}
+                </Select>
+              </Field>
+            </div>
+          </div>
+        </div>
+        {image && (
+          <div className="-mt-3 flex gap-3 text-xs">
+            <button type="button" onClick={() => setImage(undefined)} className="font-semibold text-bad hover:underline">
+              Remove photo
+            </button>
+          </div>
+        )}
 
-                  <button
-                    type="button"
-                    onClick={() => handleAddOption(gIdx)}
-                    className="text-[11px] font-semibold text-orange-400 hover:text-orange-300 pt-1"
-                  >
-                    + Add option
-                  </button>
-                </div>
-              </div>
+        {/* Pricing */}
+        <section>
+          <SectionLabel>Pricing</SectionLabel>
+          <div className="mt-2 grid grid-cols-2 gap-3">
+            <Field label="Selling price" required>
+              <Input type="text" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" prefix={settings.currency} mono size="lg" />
+            </Field>
+            <Field label="Cost" hint={margin !== null ? `${margin}% margin` : undefined}>
+              <Input type="text" inputMode="decimal" value={cost} onChange={(e) => setCost(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" prefix={settings.currency} mono size="lg" />
+            </Field>
+          </div>
+        </section>
+
+        {/* Stock */}
+        <section className="rounded-2xl border border-line bg-surface-2/40 p-3">
+          <Switch checked={trackStock} onChange={setTrackStock} label="Track stock" description="Deduct on every sale and warn when running low." />
+          {trackStock && (
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <Field label="In stock">
+                <Input type="text" inputMode="numeric" value={stock} onChange={(e) => setStock(e.target.value.replace(/\D/g, ""))} mono />
+              </Field>
+              <Field label="Warn when below">
+                <Input type="text" inputMode="numeric" value={lowStockAt} onChange={(e) => setLowStockAt(e.target.value.replace(/\D/g, ""))} mono />
+              </Field>
+            </div>
+          )}
+        </section>
+
+        {/* Appearance */}
+        <section>
+          <SectionLabel>Tile colour</SectionLabel>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setColor(c)}
+                aria-label={`Colour ${c}`}
+                aria-pressed={color === c}
+                className={cn("press h-10 w-10 rounded-xl border-2", color === c ? "scale-105 border-fg ring-2 ring-fg/20" : "border-transparent")}
+                style={{ backgroundColor: c }}
+              />
             ))}
           </div>
+        </section>
+
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Switch checked={isFavorite} onChange={setIsFavorite} icon={<Star className="h-4 w-4 text-amber-400" />} label="Favorite" description="Show in the register's Favorites filter." />
+          <Switch checked={isActive} onChange={setIsActive} label="Visible in register" description="Hide seasonal items without deleting them." />
         </div>
 
-        {/* Footer */}
-        <div className="p-4 border-t border-slate-800 bg-slate-950/60 flex items-center justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl text-slate-400 hover:text-white text-xs font-semibold"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!name.trim()}
-            className="px-6 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold text-xs shadow-lg shadow-orange-500/20 active:scale-95 transition cursor-pointer"
-          >
-            {isEditing ? "Update Item" : "Create Item"}
-          </button>
-        </div>
+        {/* Modifiers */}
+        <section>
+          <div className="flex items-center justify-between">
+            <SectionLabel>Options & add-ons</SectionLabel>
+            <Button variant="ghost" size="sm" onClick={addGroup} leftIcon={<Plus className="h-4 w-4" />}>
+              Add group
+            </Button>
+          </div>
+          {modifiers.length === 0 ? (
+            <p className="mt-1 text-xs text-fg-subtle">Sizes, milk choices, toppings… Customers pick these when the item is added to a ticket.</p>
+          ) : (
+            <div className="mt-2 flex flex-col gap-3">
+              {modifiers.map((g, gi) => (
+                <div key={gi} className="rounded-2xl border border-line bg-surface-2/40 p-3">
+                  <div className="flex items-center gap-2">
+                    <Input value={g.name} onChange={(e) => updateGroup(gi, { name: e.target.value })} placeholder="Group name (e.g. Size)" className="h-10 font-semibold" aria-label="Option group name" />
+                    <Button variant="ghost" size="md" iconOnly aria-label="Remove group" className="hover:bg-bad-soft hover:text-bad" onClick={() => removeGroup(gi)}>
+                      <Trash2 className="h-4.5 w-4.5" />
+                    </Button>
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateGroup(gi, { required: !g.required })}
+                      className="press flex h-9 items-center gap-2 rounded-lg px-2 text-xs font-semibold text-fg-muted hover:bg-surface-3"
+                      aria-pressed={g.required}
+                    >
+                      <Badge tone={g.required ? "brand" : "neutral"}>{g.required ? "Required · pick one" : "Optional · pick any"}</Badge>
+                      <span className="text-fg-subtle">tap to change</span>
+                    </button>
+                  </div>
+                  <ul className="mt-2 flex flex-col gap-1.5">
+                    {g.options.map((o, oi) => (
+                      <li key={oi} className="flex items-center gap-2">
+                        <Input value={o.name} onChange={(e) => updateOption(gi, oi, { name: e.target.value })} placeholder="Option name" className="h-10" aria-label="Option name" />
+                        <Input
+                          type="text"
+                          inputMode="decimal"
+                          value={o.price === 0 ? "" : String(o.price)}
+                          onChange={(e) => updateOption(gi, oi, { price: parseFloat(e.target.value) || 0 })}
+                          placeholder="0.00"
+                          prefix="+"
+                          mono
+                          className="h-10"
+                          wrapperClassName="w-28 flex-none"
+                          aria-label="Extra price"
+                        />
+                        <Button variant="ghost" size="sm" iconOnly aria-label="Remove option" className="shrink-0 hover:bg-bad-soft hover:text-bad" onClick={() => removeOption(gi, oi)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                  <Button variant="ghost" size="sm" onClick={() => addOption(gi)} leftIcon={<Plus className="h-4 w-4" />} className="mt-1.5 -ml-1">
+                    Add option
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
-    </div>
+    </Modal>
   );
 };
